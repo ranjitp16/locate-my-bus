@@ -1,5 +1,5 @@
 #include<iostream>
-#include "transit_realtime.pb.h"
+#include "assets/transit_realtime.pb.h"
 #include<fstream>
 #include<curl/curl.h>
 
@@ -12,7 +12,10 @@ size_t write_data(void* ptr, size_t size, size_t nmemb, void* stream) {
     return size * nmemb;
 }
 
-string downloadFile(const string url_path = "https://gtfs.halifax.ca/realtime/Vehicle/VehiclePositions.pb", const string fileName = "VehiclePositions.pb"){
+string downloadFile(
+	const string url_path = "https://gtfs.halifax.ca/realtime/Vehicle/VehiclePositions.pb", 
+	const string fileName = "./daemon/assets/VehiclePositions.pb"
+){
 
 	CURL* curl;
 	CURLcode res;
@@ -24,6 +27,7 @@ string downloadFile(const string url_path = "https://gtfs.halifax.ca/realtime/Ve
 		fstream file(fileName, fstream::out | fstream::binary);
 		if(!file.is_open()) {
 			cerr << "Error creating the file." << endl;
+			throw runtime_error("Error creating the file.");
 		}
 		
 		curl_easy_setopt(curl, CURLOPT_URL, url_path.c_str());
@@ -34,6 +38,7 @@ string downloadFile(const string url_path = "https://gtfs.halifax.ca/realtime/Ve
 
 		if(res != CURLE_OK){
 			cerr << "Err downloading the file" << curl_easy_strerror(res) << endl;
+			throw runtime_error("Error downloading the file: " + string(curl_easy_strerror(res)));
 		}
 
 		file.close();
@@ -49,10 +54,10 @@ string downloadFile(const string url_path = "https://gtfs.halifax.ca/realtime/Ve
 string getValueFromTag(char* args[], string tag){
 
  	for(int i = 0; args[i] != nullptr; i++){
-		cout << args[i]<< " : "<< (bool)(args[i] == "-f")<<endl;
-		if(strcmp(args[i], "-f")){
+		if(strcmp(args[i], tag.c_str()) == 0){
 			if(args[i+1] != nullptr) return args[i+1];
-			cerr<<"file not provided after the -f flag"<<endl;
+			cerr<<"Argument expected after "<< tag << endl;
+			throw invalid_argument("Argument expected after " + tag);
 		}
 	}
 	return ""; 
@@ -70,6 +75,7 @@ int main(int argc, char* args[]){
 
 	if(!file.is_open()){
 		cerr<< "error reading the file"<< endl;
+		return 1;
 	}
 
 	FeedMessage feed;

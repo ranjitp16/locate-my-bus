@@ -1,18 +1,19 @@
 run-loop-29:
-	while true; do ./test | grep "Vehicle: 29"; sleep 60; done
+	while true; do ./daemon/build/vehiclePosition_d | grep "Vehicle: 29"; sleep 60; done
 
 get-protobuf-headers:
 	wget "https://gtfs.org/documentation/realtime/gtfs-realtime.proto"
 	sleep 5
-	mv gtfs-realtime.proto transit_realtime.proto
-	protoc --cpp_out=. transit_realtime.proto
+	mv gtfs-realtime.proto ./daemon/assets/transit_realtime.proto
+	protoc --cpp_out=. ./daemon/assets/transit_realtime.proto
 	
 
 build: 
-	g++ test.cpp transit_realtime.pb.cc \
-	    $(shell pkg-config --cflags --libs protobuf) \
+	g++ ./daemon/test.cpp ./daemon/assets/transit_realtime.pb.cc \
+	    -I. \
+		$(shell pkg-config --cflags --libs protobuf) \
 	    -lcurl \
-	    -o test
+	    -o ./daemon/build/vehiclePosition_d
 
 run: 
-	./test 
+	./daemon/build/vehiclePosition_d
