@@ -1,5 +1,4 @@
-test
-*.pb.cc
-*.pb.h
-*.proto
-*.pb
+**/*.pb.cc
+**/*.pb.h
+**/*.proto
+**/*.pb

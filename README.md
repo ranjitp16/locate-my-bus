@@ -45,11 +45,11 @@ Here's a blank template to get started:
 
 ## Getting Started
 
-For development this project uses the devcontainers so that the root is not polluted with a bunch of dependencies. So if you wish to use dev devContainers you can skip the Prerequisites section.
+For development, this project uses Dev Containers so that the root is not polluted with a bunch of dependencies. If you use Dev Containers, you can skip the Prerequisites section.
 
 ### Prerequisites
 
-We need ```protoc``` to conver the .proto file into the dependencies which our program can than utilize
+We need ```protoc``` to convert the .proto file into the dependencies which our program can then utilize
 * macOs
   ```sh
   brew install protobuf
@@ -73,7 +73,7 @@ We need ```protoc``` to conver the .proto file into the dependencies which our p
    ```
 2. Open dev container or run 
   ```sh
-  make get-protobuf-headers && make build"
+  make get-protobuf-headers && make build
   ```
 3. Run the executable
   ```sh
