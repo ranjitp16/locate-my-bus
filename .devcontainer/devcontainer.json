@@ -1,8 +1,8 @@
  {
         "name": "locate-my-bus",
-        "image": "mcr.microsoft.com/devcontainers/cpp:1-ubuntu-24.04",
+        "dockerComposeFile": ["dockerCompose.yml"],
+        "service": "locate-my-bus",
         "workspaceFolder": "/workspace",
-        "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached",
         "features": {
                 "ghcr.io/devcontainers/features/common-utils:2": {}
         },
