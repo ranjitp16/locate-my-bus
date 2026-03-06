@@ -2,3 +2,4 @@
 **/*.pb.h
 **/*.proto
 **/*.pb
+**/postgres-data
