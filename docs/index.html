@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>locate-my-bus</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Source+Code+Pro:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #1a1a1a;
+      --bg-card: #2a2a2a;
+      --border: #3a3a3a;
+      --text: #ffffff;
+      --muted: #b0b0b0;
+      --green: #22e27f;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: "Source Code Pro", "JetBrains Mono", monospace;
+      background: var(--bg);
+      color: var(--text);
+      font-size: 0.9rem;
+      line-height: 1.7;
+    }
+
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        rgba(0,0,0,0.03) 2px,
+        rgba(0,0,0,0.03) 4px
+      );
+      pointer-events: none;
+      z-index: 999;
+    }
+
+    nav {
+      position: fixed;
+      top: 0;
+      width: 100%;
+      background: rgba(26,26,26,0.85);
+      backdrop-filter: blur(10px);
+      border-bottom: 1px solid var(--border);
+      z-index: 1000;
+    }
+
+    .nav-content {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 16px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .logo {
+      color: var(--green);
+      font-weight: 600;
+      font-size: 0.9rem;
+    }
+
+    .logo::before { content: '> '; }
+
+    .nav-links {
+      display: flex;
+      gap: 28px;
+      list-style: none;
+    }
+
+    .nav-links a {
+      color: var(--muted);
+      text-decoration: none;
+      font-size: 0.85rem;
+      transition: color 0.2s;
+    }
+
+    .nav-links a:hover { color: var(--green); }
+
+    main {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 120px 24px 80px;
+    }
+
+    /* Hero */
+    .hero { margin-bottom: 80px; }
+
+    .hero .comment {
+      color: var(--muted);
+      margin-bottom: 20px;
+      font-size: 0.85rem;
+    }
+
+    .hero h1 {
+      font-size: 2.5rem;
+      font-weight: 600;
+      line-height: 1.2;
+      animation: glow 3s ease-in-out infinite alternate;
+    }
+
+    @keyframes glow {
+      from { text-shadow: 0 0 4px rgba(34,226,127,0.1); }
+      to   { text-shadow: 0 0 18px rgba(34,226,127,0.35); }
+    }
+
+    .hero .subtitle {
+      color: var(--muted);
+      margin-top: 8px;
+      font-size: 0.95rem;
+    }
+
+    .hero p {
+      margin-top: 20px;
+      max-width: 600px;
+      color: var(--muted);
+      font-size: 0.875rem;
+    }
+
+    .links {
+      margin-top: 32px;
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .links a {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 18px;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--muted);
+      text-decoration: none;
+      font-size: 0.8rem;
+      transition: border-color 0.2s, color 0.2s, transform 0.2s;
+    }
+
+    .links a:hover {
+      border-color: var(--green);
+      color: var(--green);
+      transform: translateY(-2px);
+    }
+
+    /* Sections */
+    section { margin-bottom: 72px; }
+
+    .section-label {
+      color: var(--green);
+      font-size: 0.8rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 24px;
+    }
+
+    .section-label::before { content: '// '; }
+
+    /* Screenshot */
+    .screenshot img {
+      width: 100%;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+    }
+
+    /* How it works */
+    .stack {
+      border-left: 2px solid var(--border);
+      padding-left: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 28px;
+    }
+
+    .stack-item {
+      position: relative;
+    }
+
+    .stack-item::before {
+      content: '';
+      position: absolute;
+      left: -30px;
+      top: 6px;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--green);
+    }
+
+    .stack-item h3 {
+      font-size: 0.9rem;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .stack-item p {
+      color: var(--muted);
+      font-size: 0.85rem;
+      margin-top: 4px;
+    }
+
+    /* Tech */
+    .tech-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .tag {
+      padding: 4px 14px;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      font-size: 0.8rem;
+      color: var(--muted);
+      transition: border-color 0.2s, color 0.2s;
+    }
+
+    .tag:hover {
+      border-color: var(--green);
+      color: var(--green);
+    }
+
+    /* Getting started */
+    .steps {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .step {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 16px 20px;
+    }
+
+    .step .step-label {
+      color: var(--green);
+      font-size: 0.75rem;
+      margin-bottom: 6px;
+    }
+
+    .step code {
+      color: var(--text);
+      font-family: inherit;
+      font-size: 0.85rem;
+    }
+
+    .step p {
+      color: var(--muted);
+      font-size: 0.82rem;
+      margin-top: 4px;
+    }
+
+    footer {
+      border-top: 1px solid var(--border);
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 32px 24px;
+      color: var(--muted);
+      font-size: 0.8rem;
+      display: flex;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    footer a { color: var(--green); text-decoration: none; }
+    footer a:hover { text-decoration: underline; }
+
+    @media (max-width: 600px) {
+      .hero h1 { font-size: 1.8rem; }
+      .nav-links { gap: 16px; }
+    }
+  </style>
+</head>
+<body>
+
+  <nav>
+    <div class="nav-content">
+      <span class="logo">locate-my-bus</span>
+      <ul class="nav-links">
+        <li><a href="#about">about</a></li>
+        <li><a href="#how-it-works">how it works</a></li>
+        <li><a href="#getting-started">get started</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <main>
+
+    <div class="hero" id="about">
+      <p class="comment">// real-time transit tracking</p>
+      <h1>locate-my-bus</h1>
+      <p class="subtitle">Halifax Transit &mdash; live vehicle positions on a map</p>
+      <p>
+        A C++ daemon fetches GTFS-RT vehicle position data from Halifax Transit every 30 seconds,
+        upserts it into PostgreSQL, and serves it to a Leaflet.js map in the browser.
+        No duplicates. No page reloads. Just buses.
+      </p>
+      <div class="links">
+        <a href="https://github.com/ranjitp16/locate-my-bus">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/></svg>
+          source code
+        </a>
+        <a href="https://gtfs.org/documentation/realtime/proto/">
+          gtfs-rt docs
+        </a>
+        <a href="https://ranjitpandey.dev">
+          ranjitpandey.dev
+        </a>
+      </div>
+    </div>
+
+    <section class="screenshot">
+      <p class="section-label">preview</p>
+      <img src="../images/screenshot.png" alt="locate-my-bus map screenshot" />
+    </section>
+
+    <section id="how-it-works">
+      <p class="section-label">how it works</p>
+      <div class="stack">
+        <div class="stack-item">
+          <h3>C++ daemon</h3>
+          <p>Downloads the GTFS-RT protobuf feed from Halifax Transit every 30 seconds, deduplicates by vehicle ID, and upserts positions into PostgreSQL.</p>
+        </div>
+        <div class="stack-item">
+          <h3>PostgreSQL</h3>
+          <p>Stores one row per vehicle — <code>ON CONFLICT (vehicle_id) DO UPDATE</code> keeps only the latest position, no duplicates ever.</p>
+        </div>
+        <div class="stack-item">
+          <h3>Node.js / Express</h3>
+          <p>Exposes <code>GET /:route_id</code> which queries the DB and returns JSON. Also serves the static frontend.</p>
+        </div>
+        <div class="stack-item">
+          <h3>Leaflet.js map</h3>
+          <p>Polls the API every 30 seconds, clears old markers, and re-renders updated vehicle positions. Click any marker for route, speed, and timestamp details.</p>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <p class="section-label">built with</p>
+      <div class="tech-grid">
+        <span class="tag">C++17</span>
+        <span class="tag">protobuf</span>
+        <span class="tag">libcurl</span>
+        <span class="tag">libpqxx</span>
+        <span class="tag">PostgreSQL</span>
+        <span class="tag">Node.js</span>
+        <span class="tag">Express</span>
+        <span class="tag">Leaflet.js</span>
+        <span class="tag">Dev Containers</span>
+      </div>
+    </section>
+
+    <section id="getting-started">
+      <p class="section-label">getting started</p>
+      <div class="steps">
+        <div class="step">
+          <p class="step-label">$ 01</p>
+          <code>git clone git@github.com:ranjitp16/locate-my-bus.git && cd locate-my-bus</code>
+        </div>
+        <div class="step">
+          <p class="step-label">$ 02</p>
+          <code>make get-protobuf-headers && make build</code>
+          <p>Or open in a Dev Container to skip local dependencies entirely.</p>
+        </div>
+        <div class="step">
+          <p class="step-label">$ 03</p>
+          <code>psql -U postgres -d locate_my_bus -f db/schema/init.sql</code>
+        </div>
+        <div class="step">
+          <p class="step-label">$ 04</p>
+          <code>make run</code>
+          <p>Daemon starts polling Halifax Transit and writing to the DB.</p>
+        </div>
+        <div class="step">
+          <p class="step-label">$ 05</p>
+          <code>npm run dev</code>
+          <p>Open <code>http://localhost:3000</code> to see the live map.</p>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer>
+    <span>built by <a href="https://ranjitpandey.dev">ranjit pandey</a></span>
+    <span><a href="https://github.com/ranjitp16/locate-my-bus">github.com/ranjitp16/locate-my-bus</a></span>
+  </footer>
+
+</body>
+</html>

@@ -9,6 +9,7 @@ get-protobuf-headers:
 	
 
 build: 
+	mkdir -p ./daemon/build
 	g++ ./daemon/main.cpp ./daemon/assets/transit_realtime.pb.cc \
 	    -I. \
 		$(shell pkg-config --cflags --libs protobuf) \
