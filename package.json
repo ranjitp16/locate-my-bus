@@ -1,0 +1,26 @@
+{
+  "name": "locate-my-bus",
+  "version": "0.0.1",
+  "description": "frontend-for-locate-my-bus",
+  "main": "web/index.js",
+  "scripts": {
+    "dev": "nodemon web/index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ranjitp16/locate-my-bus.git"
+  },
+  "author": "Ranjit Pandey",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/ranjitp16/locate-my-bus/issues"
+  },
+  "homepage": "https://github.com/ranjitp16/locate-my-bus#readme",
+  "dependencies": {
+    "express": "^5.2.1",
+    "leaflet": "^1.9.4",
+    "nodemon": "^3.1.14",
+    "pg": "^8.20.0"
+  }
+}

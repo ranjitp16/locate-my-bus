@@ -1,131 +1,113 @@
-<!-- TABLE OF CONTENTS -->
-<!-- <details open="open">
-  <summary><h2 style="display: inline-block">Table of Contents</h2></summary>
-  <ol>
-    <li>
-      <a href="#about-the-project">About The Project</a>
-      <ul>
-        <li><a href="#built-with">Built With</a></li>
-      </ul>
-    </li>
-    <li>
-      <a href="#getting-started">Getting Started</a>
-      <ul>
-        <li><a href="#prerequisites">Prerequisites</a></li>
-        <li><a href="#installation">Installation</a></li>
-      </ul>
-    </li>
-    <li><a href="#usage">Usage</a></li>
-    <li><a href="#roadmap">Roadmap</a></li>
-    <li><a href="#contributing">Contributing</a></li>
-    <li><a href="#license">License</a></li>
-    <li><a href="#contact">Contact</a></li>
-    <li><a href="#acknowledgements">Acknowledgements</a></li>
-  </ol>
-</details> -->
+# Locate My Bus
 
+Real-time bus tracking for Halifax Transit. A C++ daemon fetches GTFS-RT vehicle position data every 30 seconds, stores it in PostgreSQL, and a Node.js/Express server exposes it to a Leaflet.js map in the browser.
 
+![Screenshot](./images/screenshot.png)
 
-<!-- ABOUT THE PROJECT -->
-<!-- ## About The Project
+---
 
+## Architecture
 
-Here's a blank template to get started:
-**To avoid retyping too much info. Do a search and replace with your text editor for the following:**
-`github_username`, `repo_name`, `twitter_handle`, `email`, `project_title`, `project_description`
+```
+Halifax Transit GTFS-RT API
+        │
+        ▼
+  C++ Daemon (every 30s)
+  - Downloads VehiclePositions.pb
+  - Parses protobuf feed
+  - Upserts into PostgreSQL (ON CONFLICT vehicle_id DO UPDATE)
+        │
+        ▼
+   PostgreSQL DB
+   └── public.vehicle_position
+        │
+        ▼
+  Node.js / Express server
+  - GET /:route_id → queries DB, returns JSON
+  - Serves static Leaflet.js frontend
+        │
+        ▼
+  Browser (Leaflet.js map)
+  - Polls /1 every 30 seconds
+  - Renders vehicle markers
+```
 
-
-### Built With
-
-* []()
-* []()
-* []() -->
-
-
+---
 
 ## Getting Started
 
-For development, this project uses Dev Containers so that the root is not polluted with a bunch of dependencies. If you use Dev Containers, you can skip the Prerequisites section.
+This project uses Dev Containers so your local environment stays clean. If you use Dev Containers you can skip the Prerequisites section.
 
 ### Prerequisites
 
-We need ```protoc``` to convert the .proto file into the dependencies which our program can then utilize
-* macOs
+`protoc` is required to generate the protobuf headers the daemon depends on.
+
+- **macOS**
   ```sh
   brew install protobuf
   ```
-
-* linux
+- **Linux**
   ```sh
   sudo apt update && sudo apt install -y protobuf-compiler
   ```
+- **Windows**
+  Download the latest `protoc-*-win64.zip` from [github.com/protocolbuffers/protobuf/releases](https://github.com/protocolbuffers/protobuf/releases), extract it, and add the `bin` folder to your `PATH`.
 
-* windows
-  ```text
-  Download the latest protoc-*-win64.zip from github.com/protocolbuffers/protobuf/releases, extract it, and add the bin folder to your PATH.
-  ```
+You also need a running PostgreSQL instance. The schema is in `db/schema/init.sql`. Connection details default to:
+
+```
+host=postgres port=5432 dbname=locate_my_bus user=postgres password=postgres
+```
+
+Override these via environment variables (see `.development.env`).
 
 ### Installation
 
-1. Clone the repo and cd into it
+1. Clone the repo
    ```sh
    git clone git@github.com:ranjitp16/locate-my-bus.git && cd locate-my-bus
    ```
-2. Open dev container or run 
-  ```sh
-  make get-protobuf-headers && make build
-  ```
-3. Run the executable
-  ```sh
-  make run
-  ```
 
-and you're now running the program successfully
+2. Open the Dev Container **or** build manually:
+   ```sh
+   make get-protobuf-headers && make build
+   ```
 
+3. Apply the database schema:
+   ```sh
+   psql -U postgres -d locate_my_bus -f db/schema/init.sql
+   ```
 
-<!-- ## Usage
+4. Start the daemon (polls Halifax Transit every 30 s):
+   ```sh
+   make run
+   ```
 
-Use this space to show useful examples of how a project can be used. Additional screenshots, code examples and demos work well in this space. You may also link to more resources.
+5. In a separate terminal, start the web server:
+   ```sh
+   npm run dev
+   ```
 
-_For more examples, please refer to the [Documentation](https://example.com)_ -->
+6. Open `http://localhost:3000` in your browser.
 
+---
 
+## How It Works
 
-<!-- ## Roadmap
+- The daemon deduplicates on `vehicle_id` using PostgreSQL's `ON CONFLICT … DO UPDATE`, so the table always holds the latest position per vehicle — no duplicate rows.
+- The frontend fetches `/1` (route 1) every 30 seconds, clears old markers, and re-renders the updated positions.
+- Vehicle popups show route ID, vehicle ID, age of the reading, speed, and bearing.
 
-See the [open issues](https://github.com/github_username/repo_name/issues) for a list of proposed features (and known issues). -->
-
-
-<!-- 
-## Contributing
-
-Contributions are what make the open source community such an amazing place to learn, inspire, and create. Any contributions you make are **greatly appreciated**.
-
-1. Fork the Project
-2. Create your Feature Branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your Changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the Branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request -->
-
-
+---
 
 ## License
 
-Distributed under the MIT License. See `LICENSE` for more information.
-
-
+Distributed under the MIT License. See `LICENSE.txt` for more information.
 
 ## Contact
 
-Ranjit Pandey - [@know_me](https://ranjitpandey.dev) - [contact@ranjitpandey.dev](mailto:contact@ranjitpandey.dev)
+Ranjit Pandey — [@know_me](https://ranjitpandey.dev) — [contact@ranjitpandey.dev](mailto:contact@ranjitpandey.dev)
 
-<!-- Project Link: [https://github.com/github_username/repo_name](https://github.com/github_username/repo_name) -->
+## Further Reading
 
-
-
-<!-- ## Acknowledgements
-
-* []()
-* []() -->
-## Read more about gtfs-rt
-* [gtfs-rt](https://gtfs.org/documentation/realtime/proto/)
+- [GTFS Realtime Reference](https://gtfs.org/documentation/realtime/proto/)
