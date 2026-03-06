@@ -12,3 +12,5 @@ CREATE TABLE IF NOT EXISTS public.vehicle_position (
     speed                     DOUBLE PRECISION,
     PRIMARY KEY (id)
 );
+
+-- ALTER TABLE vehicle_position ADD CONSTRAINT uq_vehicle_route UNIQUE (vehicle_id);

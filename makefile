@@ -9,10 +9,10 @@ get-protobuf-headers:
 	
 
 build: 
-	g++ ./daemon/test.cpp ./daemon/assets/transit_realtime.pb.cc \
+	g++ ./daemon/main.cpp ./daemon/assets/transit_realtime.pb.cc \
 	    -I. \
 		$(shell pkg-config --cflags --libs protobuf) \
-	    -lcurl \
+	    -lcurl -lpqxx -lpq\
 	    -o ./daemon/build/vehiclePosition_d
 
 run: 
