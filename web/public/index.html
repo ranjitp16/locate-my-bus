@@ -1,16 +1,95 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <link rel="stylesheet" href="/leaflet/leaflet.css" />
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    #map { height: 100vh; }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Locate My Bus</title>
+    <link rel="stylesheet" href="/base.css">
+    <script>
+        (function () {
+            const saved = localStorage.getItem('theme');
+            if (saved) {
+                document.documentElement.setAttribute('data-theme', saved);
+            } else if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+                document.documentElement.setAttribute('data-theme', 'dark');
+            } else {
+                document.documentElement.setAttribute('data-theme', 'light');
+            }
+        })();
+    </script>
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            padding-top: 48px;
+        }
+        .landing {
+            text-align: center;
+            max-width: 420px;
+            padding: 0 24px;
+        }
+        .landing h1 {
+            font-size: 2rem;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+        .landing p {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            margin-bottom: 32px;
+        }
+        .btn-primary {
+            display: inline-block;
+            padding: 10px 28px;
+            background: var(--accent);
+            color: #fff;
+            border: none;
+            border-radius: 6px;
+            font-family: inherit;
+            font-size: 0.9rem;
+            text-decoration: none;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .btn-primary:hover {
+            background: var(--accent-hover);
+            color: #fff;
+        }
+    </style>
 </head>
 <body>
-  <div id="map"></div>
-  <script src="/leaflet/leaflet.js"></script>
-  <script type="module" src="/map.js"></script>
+
+<header class="site-header">
+    <span class="brand">Locate My Bus</span>
+    <div class="header-right">
+        <button id="theme-toggle"></button>
+    </div>
+</header>
+
+<div class="landing">
+    <h1>Locate My Bus</h1>
+    <p>Real-time vehicle tracking for transit agencies across the world.</p>
+    <a href="/dash/agencies" class="btn-primary">Manage Agencies</a>
+</div>
+
+<script>
+    (function () {
+        const btn = document.getElementById('theme-toggle');
+        function applyTheme(theme) {
+            document.documentElement.setAttribute('data-theme', theme);
+            btn.textContent = theme === 'dark' ? '☀ Light' : '☾ Dark';
+        }
+        btn.addEventListener('click', function () {
+            const next = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+            localStorage.setItem('theme', next);
+            applyTheme(next);
+        });
+        applyTheme(document.documentElement.getAttribute('data-theme') || 'light');
+    })();
+</script>
 </body>
 </html>

@@ -57,12 +57,6 @@ stringstream downloadFile(
 	curl = curl_easy_init();
 	
 	if(curl){
-		// fstream file(fileName, fstream::out | fstream::binary);
-		// if(!file.is_open()) {
-			// 	cerr << "Error creating the file." << endl;
-			// 	throw runtime_error("Error creating the file.");
-			// }
-		
 		
 		curl_easy_setopt(curl, CURLOPT_URL, url_path.c_str());
 		curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_data);
@@ -121,16 +115,7 @@ int mainLogic(int argc, char* args[], pqxx::connection* conn){
 	string url = getValueFromTag(args, "-u");
 	string out_path = getValueFromTag(args, "-o");
 
-	// download the file if its not passed already
-	// fstream file; 
 	stringstream ss;
-	
-	// = isFileProvidedAlredy(args) 
-	// ? file(getValueFromTag(args, "-f") , ios::in | ios::binary)
-	// : downloadFile(
-	// 	!url.empty() ? url : url_path, 
-	// 	!out_path.empty() ? out_path : ::fileName
-	// );
 
 	if (isFileProvidedAlredy(args)) {
       ifstream file(getValueFromTag(args, "-f"), ios::in | ios::binary);
@@ -139,21 +124,11 @@ int mainLogic(int argc, char* args[], pqxx::connection* conn){
       ss = downloadFile(!url.empty() ? url : url_path);
   	}
 
-	// ifstream file(fileName, ios::binary);
-
-	// if(!file.is_open()){
-	// 	cerr<< "error reading the file"<< endl;
-	// 	return 1;
-	// }
-
 	FeedMessage feed;
 	if (!feed.ParseFromIstream(&ss)) {
         	cerr << "Failed to parse feed message." << endl;
         	return 1;
     }
-
-
-	// -----------------------
 
 	try {
         
@@ -161,7 +136,7 @@ int mainLogic(int argc, char* args[], pqxx::connection* conn){
         pqxx::work txn(*conn);
 
 
-		string insertQ = "INSERT INTO public.vehicle_position(id, route_id, route_short_name, lon, lat, vehicle_id, \"timestamp\", vehicle_distance_traveled, speed) VALUES ";
+		string insertQ = "INSERT INTO public.vehicle_position(id, agency_id, route_id, route_short_name, lon, lat, vehicle_id, \"timestamp\", vehicle_distance_traveled, speed) VALUES ";
 		string insertV = "";
 
 		map<string, FeedEntity> vehicles;
@@ -185,6 +160,7 @@ int mainLogic(int argc, char* args[], pqxx::connection* conn){
 				long ts = chrono::duration_cast<chrono::seconds>(chrono::system_clock::now().time_since_epoch()).count();
 
 				insertV += "('" + generate_uuid_v4() + "',"
+					+ "'b5c5887f-742a-4a48-aa17-8e0b59642ce5'," +
 					+ "'" + entity.vehicle().trip().route_id() + "',"
 					+ "'" + entity.vehicle().trip().route_id() + "',"
 					+ to_string(entity.vehicle().position().longitude()) + ","
@@ -196,14 +172,10 @@ int mainLogic(int argc, char* args[], pqxx::connection* conn){
 			}
 		}
 
-		string onConflict = "ON CONFLICT (vehicle_id) DO UPDATE SET lat = EXCLUDED.lat,lon = EXCLUDED.lon, speed = EXCLUDED.speed,\"timestamp\" = EXCLUDED.\"timestamp\", vehicle_distance_traveled = EXCLUDED.vehicle_distance_traveled";
-// cout<< insertQ + insertV + onConflict +";"<<endl;
+		string onConflict = ""; //"ON CONFLICT (vehicle_id) DO UPDATE SET lat = EXCLUDED.lat,lon = EXCLUDED.lon, speed = EXCLUDED.speed,\"timestamp\" = EXCLUDED.\"timestamp\", vehicle_distance_traveled = EXCLUDED.vehicle_distance_traveled";
+		txn.exec("DELETE FROM public.live_vehicle_position WHERE agency_id = 'b5c5887f-742a-4a48-aa17-8e0b59642ce5'");
 		pqxx::result rows = txn.exec(insertQ + insertV + onConflict +";");
 
-        // for (const auto& row : rows) {
-        //     cout << row["id"].as<int>() << " | "
-        //               << row["name"].as<string>() << "\n";
-        // }
 
         txn.commit();
 
