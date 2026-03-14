@@ -77,43 +77,16 @@
             <form id="add-form">
                 <div class="row g-3">
                     <div class="col-md-6">
-                        <label for="name" class="form-label">Name</label>
-                        <input type="text" class="form-control" id="name" name="name" maxlength="45">
-                    </div>
-                    <div class="col-md-6">
-                        <label for="url" class="form-label">URL</label>
-                        <input type="url" class="form-control" id="url" name="url" maxlength="100">
-                    </div>
-                    <div class="col-md-6">
-                        <label for="timezone" class="form-label">Timezone</label>
-                        <input type="text" class="form-control" id="timezone" name="timezone" maxlength="75" placeholder="e.g. America/New_York">
-                    </div>
-                    <div class="col-md-3">
-                        <label for="language" class="form-label">Language</label>
-                        <input type="text" class="form-control" id="language" name="language" maxlength="45" placeholder="e.g. en">
-                    </div>
-                    <div class="col-md-3">
-                        <label for="phone" class="form-label">Phone</label>
-                        <input type="tel" class="form-control" id="phone" name="phone" maxlength="45">
-                    </div>
-                    <div class="col-md-6">
-                        <label for="fare_url" class="form-label">Fare URL</label>
-                        <input type="url" class="form-control" id="fare_url" name="fare_url" maxlength="100">
-                    </div>
-                    <div class="col-md-6">
-                        <!-- spacer -->
-                    </div>
-                    <div class="col-md-6">
                         <label for="rt_feed_url" class="form-label">
                             Realtime Feed URL <span class="text-danger">*</span>
                         </label>
-                        <input type="url" class="form-control" id="rt_feed_url" name="rt_feed_url" maxlength="100" required>
+                        <input type="url" class="form-control" id="rt_feed_url" name="rt_feed_url" maxlength="1000" required>
                     </div>
                     <div class="col-md-6">
                         <label for="static_feed_url" class="form-label">
                             Static Feed URL <span class="text-danger">*</span>
                         </label>
-                        <input type="url" class="form-control" id="static_feed_url" name="static_feed_url" maxlength="100" required>
+                        <input type="url" class="form-control" id="static_feed_url" name="static_feed_url" maxlength="1000" required>
                     </div>
                     <div class="col-12 pt-1 d-flex justify-content-end">
                         <button type="submit" class="btn btn-primary px-4">Add Agency</button>
@@ -243,7 +216,7 @@
                 if (r.ok) {
                     window.location.reload();
                 } else {
-                    return r.text().then(t => { throw new Error(t || `Server error ${r.status}`); });
+                    return r.json().then(t => { throw new Error(t.error || `Server error ${r.status}`); });
                 }
             })
             .catch(err => {
@@ -297,7 +270,7 @@
                     showBanner('Invalid access key.');
                     btn.disabled = false;
                 } else {
-                    showBanner(`Failed to delete agency (${r.status}).`);
+                    r.json().then(t => { showBanner(`Failed to delete agency: ${t.error || `Server error ${r.status}`}`); });
                     btn.disabled = false;
                 }
             })
