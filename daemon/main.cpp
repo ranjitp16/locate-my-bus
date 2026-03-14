@@ -136,7 +136,7 @@ int mainLogic(int argc, char* args[], pqxx::connection* conn){
         pqxx::work txn(*conn);
 
 
-		string insertQ = "INSERT INTO public.vehicle_position(id, agency_id, route_id, route_short_name, lon, lat, vehicle_id, \"timestamp\", vehicle_distance_traveled, speed) VALUES ";
+		string insertQ = "INSERT INTO public.live_vehicle_position(id, agency_id, route_id, route_short_name, lon, lat, vehicle_id, \"timestamp\", vehicle_distance_traveled, speed) VALUES ";
 		string insertV = "";
 
 		map<string, FeedEntity> vehicles;
@@ -160,7 +160,7 @@ int mainLogic(int argc, char* args[], pqxx::connection* conn){
 				long ts = chrono::duration_cast<chrono::seconds>(chrono::system_clock::now().time_since_epoch()).count();
 
 				insertV += "('" + generate_uuid_v4() + "',"
-					+ "'b5c5887f-742a-4a48-aa17-8e0b59642ce5'," +
+					+ "'0250e5dd-ba96-42a6-a1a2-b6af3e73ee43'," +
 					+ "'" + entity.vehicle().trip().route_id() + "',"
 					+ "'" + entity.vehicle().trip().route_id() + "',"
 					+ to_string(entity.vehicle().position().longitude()) + ","
@@ -173,7 +173,7 @@ int mainLogic(int argc, char* args[], pqxx::connection* conn){
 		}
 
 		string onConflict = ""; //"ON CONFLICT (vehicle_id) DO UPDATE SET lat = EXCLUDED.lat,lon = EXCLUDED.lon, speed = EXCLUDED.speed,\"timestamp\" = EXCLUDED.\"timestamp\", vehicle_distance_traveled = EXCLUDED.vehicle_distance_traveled";
-		txn.exec("DELETE FROM public.live_vehicle_position WHERE agency_id = 'b5c5887f-742a-4a48-aa17-8e0b59642ce5'");
+		txn.exec("DELETE FROM public.live_vehicle_position WHERE agency_id = '0250e5dd-ba96-42a6-a1a2-b6af3e73ee43'");
 		pqxx::result rows = txn.exec(insertQ + insertV + onConflict +";");
 
 

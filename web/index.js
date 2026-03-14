@@ -4,8 +4,7 @@ const helmet = require('helmet');
 const app = express();
 const port = 3000;
 const { Pool } = require('pg');
-const request = require('request');
-const unzip = require('unzipper');
+const { onBoardAgency } = require('./service/addAgency');
 
 app.use(helmet({
     contentSecurityPolicy: {
@@ -33,18 +32,33 @@ app.use('/leaflet', express.static(path.join(__dirname, '../node_modules/leaflet
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-app.get('/:route_id', async (req, res) => {
-    const { route_id } = req.params
+app
+    .get('/routes/:agency_id', async (req, res) => {
+        const { agency_id } = req.params
 
-    const pool = new Pool({
-        connectionString: `postgresql://${process.env.POSTGRES_USER}:${process.env.POSTGRES_PASSWORD}@postgres:5432/${process.env.POSTGRES_DB}`,
+        const pool = new Pool({
+            connectionString: `postgresql://${process.env.POSTGRES_USER}:${process.env.POSTGRES_PASSWORD}@postgres:5432/${process.env.POSTGRES_DB}`,
+        })
+        const { rows } = await pool.query('SELECT id, short_name  FROM public.route WHERE agency_id = $1', [agency_id]);
+        res.send(rows)
     })
-    const { rows } = await pool.query('SELECT * FROM public.live_vehicle_position WHERE route_id = $1', [route_id])
-    res.send(rows)
-})
+    .get('/live/:agency_id/:route_id', async (req, res) => {
+        const { agency_id, route_id } = req.params
+
+        const pool = new Pool({
+            connectionString: `postgresql://${process.env.POSTGRES_USER}:${process.env.POSTGRES_PASSWORD}@postgres:5432/${process.env.POSTGRES_DB}`,
+        })
+        const { rows } = await pool.query('SELECT * FROM public.live_vehicle_position WHERE agency_id = $1 AND route_id = $2', [agency_id, route_id])
+        res.send(rows)
+    })
 
 app.get('/dash/agencies', async (req, res) => {
     return res.sendFile(path.join(__dirname, 'public/addAgency.html'))
+});
+
+app.get('/view-map', async (req, res) => {
+    console.log('Serving map-poc.html');
+    return res.sendFile(path.join(__dirname, 'public/map-poc.html'))
 });
 
 app.get('/api/agencies', async (req, res) => {
@@ -101,69 +115,3 @@ app.get('/api/agencies', async (req, res) => {
 app.listen(port, () => {
     console.log(`Example app listening on port ${port}`)
 })
-
-const onBoardAgency = async (rt_feed_url, static_feed_url) => {
-    // Download and parse the GTFS feed from static_feed_url as a stream, then extract agency.txt and insert its contents into the database
-    const decompressed = await unzip.Open.url(
-        request,
-        static_feed_url
-    )
-    // TODO: Handle where content.length is not provided by the server
-
-    const file = decompressed.files.find(f => f.path === 'agency.txt');
-    const content = await file.buffer();
-    const lines = content.toString().split('\n').filter(l => l.trim());
-    if (lines.length < 2) {
-        throw new Error('Invalid GTFS feed: agency.txt must contain at least a header and one data line.');
-    }
-
-    const s_header = lines.shift(); // Remove and store header as a str
-    const header = s_header.split(',').map(h => h.trim()); // s -> arr
-
-    const pool = new Pool({
-        connectionString: `postgresql://${process.env.POSTGRES_USER}:${process.env.POSTGRES_PASSWORD}@postgres:5432/${process.env.POSTGRES_DB}`,
-    });
-
-    // Get agency columns from the table and extract it into an Arr<>... to validate against the feed
-    const { rows } = await pool.query(
-        'SELECT column_name FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2',
-        ['public', 'agency']
-    );
-    const sanitized_table_headers_no_id = rows.filter(r => r.column_name !== 'rt_feed_url' && r.column_name !== 'static_feed_url');
-    const sanitized_table_headers = rows.filter(r => r.column_name !== 'id' && r.column_name !== 'rt_feed_url' && r.column_name !== 'static_feed_url');
-
-    // Validate that the feed contains all required columns (except id, rt_feed_url, static_feed_url)
-    sanitized_table_headers.forEach(h => {
-        if (!s_header.includes(`agency_${h.column_name}`)) {
-            throw new Error(`GTFS feed is missing required column: ${h.column_name}`);
-        }
-    });
-
-    console.log(typeof s_header);
-    console.log(JSON.stringify(s_header.split(',').map(h => h.trim())));
-
-    // Extract values from each line and insert into the database, mapping feed columns to table columns (removing agency_ prefix) and adding rt_feed_url and static_feed_url
-    lines.forEach(async line => {
-        const values = line.split(',').map(v => v.trim());
-
-        const columns = [...header.map(h => h.replace('agency_', '')).filter(h => sanitized_table_headers_no_id.some(sh => sh.column_name === h)), 'rt_feed_url', 'static_feed_url'];
-        const params = [crypto.randomUUID()];
-
-        header.forEach((h, i) => {
-            if (h !== 'agency_id' && sanitized_table_headers_no_id.some(sh => sh.column_name === h.replace('agency_', ''))) {
-                params.push(values[i] || null);
-            }
-        });
-
-        params.push(rt_feed_url, static_feed_url);
-
-        const placeholders = params.map((_, i) => `$${i + 1}`).join(',');
-
-        console.log('Inserting agency record with values:', { columns, params });
-
-        await pool.query(
-            `INSERT INTO public.agency (${columns.join(',')}) VALUES (${placeholders})`,
-            params
-        );
-    });
-};

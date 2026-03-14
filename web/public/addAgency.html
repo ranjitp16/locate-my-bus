@@ -98,6 +98,26 @@
 
 </div>
 
+<!-- Add agency access key modal -->
+<div class="modal fade" id="addModal" tabindex="-1" aria-labelledby="addModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header border-0 pb-0">
+                <h6 class="modal-title" id="addModalLabel">Confirm Add Agency</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body pt-2">
+                <label for="add-access-key" class="form-label">Access Key</label>
+                <input type="password" class="form-control" id="add-access-key" placeholder="Enter access key">
+            </div>
+            <div class="modal-footer border-0 pt-0">
+                <button type="button" class="btn btn-sm px-3" data-bs-dismiss="modal" style="background:var(--surface-alt);color:var(--text);border:1px solid var(--border);">Cancel</button>
+                <button type="button" class="btn btn-primary btn-sm px-3" id="add-confirm-btn">Add Agency</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- Delete confirmation modal -->
 <div class="modal fade" id="deleteModal" tabindex="-1" aria-labelledby="deleteModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
@@ -201,28 +221,43 @@
             .catch(() => showBanner('Failed to load agencies.'));
     }
 
-    /* ── Add agency (fetch instead of native POST) ── */
+    /* ── Add agency ── */
+    let _pendingFormData = null;
+    const addModal = new bootstrap.Modal(document.getElementById('addModal'));
+
     document.getElementById('add-form').addEventListener('submit', function (e) {
         e.preventDefault();
-        const btn = this.querySelector('[type=submit]');
-        btn.disabled = true;
+        _pendingFormData = new URLSearchParams(new FormData(this));
+        document.getElementById('add-access-key').value = '';
+        addModal.show();
+    });
+
+    document.getElementById('add-confirm-btn').addEventListener('click', function () {
+        if (!_pendingFormData) return;
+        const formData = _pendingFormData;
+        _pendingFormData = null;
+
+        const key = document.getElementById('add-access-key').value;
+        addModal.hide();
 
         fetch('/api/agencies/add', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: new URLSearchParams(new FormData(this)),
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'x-access-key': key,
+            },
+            body: formData,
         })
             .then(r => {
                 if (r.ok) {
                     window.location.reload();
+                } else if (r.status === 401) {
+                    showBanner('Invalid access key.');
                 } else {
                     return r.json().then(t => { throw new Error(t.error || `Server error ${r.status}`); });
                 }
             })
-            .catch(err => {
-                showBanner(`Failed to add agency: ${err.message}`);
-                btn.disabled = false;
-            });
+            .catch(err => showBanner(`Failed to add agency: ${err.message}`));
     });
 
     /* ── Delete agency — event delegation, no inline onclick ── */

@@ -1,4 +1,4 @@
-const map = L.map('map')
+const map = L.map('map').setView([0, 0], 13)
 
 
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -24,7 +24,7 @@ setInterval(() => {
 }, 30000); // Update every 30 seconds
 
 function fetxhFromAPI() {
-    fetch('/10A')
+    fetch('/live/1')
         .then(res => res.json())
         .then(vehicles => {
             let avgLat = vehicles.reduce((sum, v) => sum + v.lat, 0) / vehicles.length

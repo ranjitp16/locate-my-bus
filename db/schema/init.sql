@@ -14,12 +14,12 @@ CREATE TABLE IF NOT EXISTS public.agency (
 );
 
 CREATE TABLE IF NOT EXISTS public.route (
-    id                          VARCHAR(45)     NOT NULL,
-    agency_id                   UUID            NOT NULL,
-    route_short_name            VARCHAR(45),
-    route_long_name             VARCHAR(100),
-    route_type                  VARCHAR(45),
-    route_color                 VARCHAR(45),
+    id                    VARCHAR(45)     NOT NULL,
+    agency_id             UUID            NOT NULL,
+    short_name            VARCHAR(45),
+    long_name             VARCHAR(100),
+    type                VARCHAR(45),
+    color                 VARCHAR(45),
     PRIMARY KEY (agency_id, id),
     CONSTRAINT fk_agency FOREIGN KEY (agency_id) REFERENCES public.agency (id) ON DELETE CASCADE
 );
@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS public.live_vehicle_position (
     vehicle_distance_traveled   DOUBLE PRECISION,
     speed                       DOUBLE PRECISION,
     PRIMARY KEY (id),
-    CONSTRAINT fk_agency    FOREIGN KEY (agency_id)            REFERENCES public.agency (id)              ON DELETE CASCADE
+    CONSTRAINT fk_agency    FOREIGN KEY (agency_id)            REFERENCES public.agency (id)              ON DELETE CASCADE,
     CONSTRAINT fk_route     FOREIGN KEY (agency_id, route_id)  REFERENCES public.route (agency_id, id)    ON DELETE CASCADE
 );
 -- Represents the shape as a whole (one row per shape)
