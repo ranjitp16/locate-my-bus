@@ -1,16 +1,224 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <link rel="stylesheet" href="/leaflet/leaflet.css" />
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    #map { height: 100vh; }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Locate My Bus</title>
+    <link rel="stylesheet" href="/base.css">
+    <script>
+        (function () {
+            const saved = localStorage.getItem('theme');
+            if (saved) {
+                document.documentElement.setAttribute('data-theme', saved);
+            } else if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+                document.documentElement.setAttribute('data-theme', 'dark');
+            } else {
+                document.documentElement.setAttribute('data-theme', 'light');
+            }
+        })();
+    </script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            padding-top: 48px;
+        }
+
+        /* ── Hero ── */
+        .hero {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 64px 24px 48px;
+        }
+
+        .hero h1 {
+            font-size: clamp(2rem, 5vw, 3rem);
+            font-weight: 700;
+            line-height: 1.2;
+            max-width: 560px;
+            margin-bottom: 16px;
+        }
+
+        .hero p {
+            color: var(--text-muted);
+            font-size: 1rem;
+            max-width: 420px;
+            line-height: 1.7;
+            margin-bottom: 36px;
+        }
+
+        .hero-actions {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        .btn-primary {
+            display: inline-block;
+            padding: 12px 32px;
+            background: var(--accent);
+            color: #fff;
+            border: none;
+            border-radius: 6px;
+            font-family: inherit;
+            font-size: 0.95rem;
+            font-weight: 600;
+            text-decoration: none;
+            cursor: pointer;
+            transition: background 0.2s, transform 0.15s;
+        }
+        .btn-primary:hover {
+            background: var(--accent-hover);
+            color: #fff;
+            transform: translateY(-1px);
+        }
+
+        .btn-secondary {
+            display: inline-block;
+            padding: 12px 32px;
+            background: transparent;
+            color: var(--text-muted);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            font-family: inherit;
+            font-size: 0.95rem;
+            text-decoration: none;
+            cursor: pointer;
+            transition: border-color 0.2s, color 0.2s;
+        }
+        .btn-secondary:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+
+        /* ── Features ── */
+        .features {
+            display: flex;
+            justify-content: center;
+            gap: 24px;
+            flex-wrap: wrap;
+            padding: 0 24px 80px;
+            max-width: 860px;
+            margin: 0 auto;
+            width: 100%;
+        }
+
+        .feature-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 24px;
+            flex: 1;
+            min-width: 200px;
+            max-width: 260px;
+            text-align: left;
+        }
+
+        .feature-icon {
+            font-size: 1.5rem;
+            margin-bottom: 12px;
+            display: block;
+        }
+
+        .feature-card h3 {
+            font-size: 0.95rem;
+            font-weight: 600;
+            margin-bottom: 6px;
+        }
+
+        .feature-card p {
+            font-size: 0.83rem;
+            color: var(--text-muted);
+            line-height: 1.6;
+        }
+
+        /* ── Footer ── */
+        footer {
+            border-top: 1px solid var(--border);
+            padding: 20px 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 8px;
+            font-size: 0.78rem;
+            color: var(--text-muted);
+        }
+
+        footer a {
+            color: var(--text-muted);
+            text-decoration: none;
+        }
+        footer a:hover { color: var(--accent); }
+
+        @media (max-width: 480px) {
+            .hero h1 { font-size: 1.75rem; }
+            footer { justify-content: center; text-align: center; }
+        }
+    </style>
 </head>
 <body>
-  <div id="map"></div>
-  <script src="/leaflet/leaflet.js"></script>
-  <script type="module" src="/map.js"></script>
+
+<header class="site-header">
+    <span class="brand">Locate My Bus</span>
+    <div class="header-right">
+        <button id="theme-toggle"></button>
+    </div>
+</header>
+
+<section class="hero">
+    <h1>See where your bus is,<br>right now.</h1>
+    <p>Live bus locations on a map, updated every 15 seconds. Pick your city, pick your route, and watch your bus move.</p>
+    <div class="hero-actions">
+        <a href="/view-map" class="btn-primary">Open the Map</a>
+    </div>
+</section>
+
+<div class="features">
+    <div class="feature-card">
+        <span class="feature-icon">📍</span>
+        <h3>Live positions</h3>
+        <p>Bus locations pulled straight from official transit feeds, refreshed every 15 seconds.</p>
+    </div>
+    <div class="feature-card">
+        <span class="feature-icon">🌆</span>
+        <h3>Multiple cities</h3>
+        <p>Not just one city. Switch between any transit agency that's been added to the map.</p>
+    </div>
+    <div class="feature-card">
+        <span class="feature-icon">📌</span>
+        <h3>Follow your bus</h3>
+        <p>Tap a bus to pin it. The map keeps it centred as it moves so you never lose track.</p>
+    </div>
+</div>
+
+<footer>
+    <span>Built by <a href="https://ranjitpandey.dev">Ranjit Pandey</a></span>
+    <span><a href="/dash/agencies">Manage agencies</a></span>
+</footer>
+
+<script>
+    (function () {
+        const btn = document.getElementById('theme-toggle');
+        function applyTheme(theme) {
+            document.documentElement.setAttribute('data-theme', theme);
+            btn.textContent = theme === 'dark' ? '☀ Light' : '☾ Dark';
+        }
+        btn.addEventListener('click', function () {
+            const next = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+            localStorage.setItem('theme', next);
+            applyTheme(next);
+        });
+        applyTheme(document.documentElement.getAttribute('data-theme') || 'light');
+    })();
+</script>
 </body>
 </html>

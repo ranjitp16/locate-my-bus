@@ -1,5 +1,6 @@
 #pragma once
 #include <iostream>
+#include <cstdlib>
 #include "assets/transit_realtime.pb.h"
 #include <fstream>
 #include <curl/curl.h>
@@ -10,6 +11,7 @@
 #include <chrono>
 #include <format>
 #include <thread>
+#include <unordered_set>
 
 using namespace std;
 using namespace transit_realtime;
@@ -57,12 +59,6 @@ stringstream downloadFile(
 	curl = curl_easy_init();
 	
 	if(curl){
-		// fstream file(fileName, fstream::out | fstream::binary);
-		// if(!file.is_open()) {
-			// 	cerr << "Error creating the file." << endl;
-			// 	throw runtime_error("Error creating the file.");
-			// }
-		
 		
 		curl_easy_setopt(curl, CURLOPT_URL, url_path.c_str());
 		curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_data);
@@ -71,7 +67,7 @@ stringstream downloadFile(
 		auto startTime = chrono::duration_cast<chrono::microseconds>(
       	chrono::system_clock::now().time_since_epoch()
   		).count();
-		cout << "start Downloading the vehicle Position..." << startTime; 
+		cout << "start Downloading the vehicle Position: " << startTime <<endl; 
 
 		res = curl_easy_perform(curl);
 
@@ -79,9 +75,9 @@ stringstream downloadFile(
       	chrono::system_clock::now().time_since_epoch()
   		).count();
 
-		cout << "end Downloading the vehicle Position..." << endTime ; 
+		cout << "end Downloading the vehicle Position: " << endTime << endl; 
 
-		cout<< "Download took " << endTime - startTime << " microsecond"<<endl;
+		cout<< "Download took " << endTime - startTime << " microsecond" <<endl;
 
 		if(res != CURLE_OK){
 			cerr << "Err downloading the file" << curl_easy_strerror(res) << endl;
@@ -118,119 +114,129 @@ int mainLogic(int argc, char* args[], pqxx::connection* conn){
 
 	cout << "Program start time: " << startTime << endl;
 
-	string url = getValueFromTag(args, "-u");
-	string out_path = getValueFromTag(args, "-o");
+	vector<pair<string, string>> agencies; // <uuid, rt_feed_url>
 
-	// download the file if its not passed already
-	// fstream file; 
-	stringstream ss;
-	
-	// = isFileProvidedAlredy(args) 
-	// ? file(getValueFromTag(args, "-f") , ios::in | ios::binary)
-	// : downloadFile(
-	// 	!url.empty() ? url : url_path, 
-	// 	!out_path.empty() ? out_path : ::fileName
-	// );
+    {
+        pqxx::nontransaction ntxn(*conn);
+        auto result = ntxn.exec("SELECT * FROM public.agency");
+        for (const auto& row : result) {
+            agencies.emplace_back(
+                row["id"].as<string>(),
+                row["rt_feed_url"].as<string>()
+            );
+        }
+    } // ntxn destroyed here, conn is clean
 
-	if (isFileProvidedAlredy(args)) {
-      ifstream file(getValueFromTag(args, "-f"), ios::in | ios::binary);
-      ss << file.rdbuf();
-  	} else {
-      ss = downloadFile(!url.empty() ? url : url_path);
-  	}
+    for (const auto& [uuid, rt_feed_url] : agencies) {
+		stringstream ss;
 
-	// ifstream file(fileName, ios::binary);
-
-	// if(!file.is_open()){
-	// 	cerr<< "error reading the file"<< endl;
-	// 	return 1;
-	// }
-
-	FeedMessage feed;
-	if (!feed.ParseFromIstream(&ss)) {
-        	cerr << "Failed to parse feed message." << endl;
-        	return 1;
-    }
-
-
-	// -----------------------
-
-	try {
-        
-        // Start a transaction
-        pqxx::work txn(*conn);
-
-
-		string insertQ = "INSERT INTO public.vehicle_position(id, route_id, route_short_name, lon, lat, vehicle_id, \"timestamp\", vehicle_distance_traveled, speed) VALUES ";
-		string insertV = "";
-
-		map<string, FeedEntity> vehicles;
-
-		for (int i = 0; i < feed.entity_size(); i++) {
-			FeedEntity entity = feed.entity(i);
-			if (entity.has_vehicle()) {
-				string vid = entity.vehicle().vehicle().id();
-				vehicles[vid] = entity;
-			}
+		if (isFileProvidedAlredy(args)) {
+		ifstream file(getValueFromTag(args, "-f"), ios::in | ios::binary);
+		ss << file.rdbuf();
+		} else {
+		ss = downloadFile(!rt_feed_url.empty() ? rt_feed_url : throw invalid_argument("rt_feed_url can not be null"));
 		}
 
-		for (const auto& [vid, entity] : vehicles) {
-      // build insert here
-  
-			// FeedEntity entity = feed.entity(i);
-
-			if (entity.has_vehicle()) {
-				if (!insertV.empty()) insertV += ", ";
-
-				long ts = chrono::duration_cast<chrono::seconds>(chrono::system_clock::now().time_since_epoch()).count();
-
-				insertV += "('" + generate_uuid_v4() + "',"
-					+ "'" + entity.vehicle().trip().route_id() + "',"
-					+ "'" + entity.vehicle().trip().route_id() + "',"
-					+ to_string(entity.vehicle().position().longitude()) + ","
-					+ to_string(entity.vehicle().position().latitude()) + ","
-					+ "'" + entity.vehicle().vehicle().id() + "',"
-					+ "TO_TIMESTAMP(" + to_string(ts) + "),"
-					+ to_string(entity.vehicle().position().odometer()) + ","
-					+ to_string(entity.vehicle().position().speed()) + ")";
-			}
+		FeedMessage feed;
+		if (!feed.ParseFromIstream(&ss)) {
+				cerr << "Failed to parse feed message." << endl;
+				return 1;
 		}
 
-		string onConflict = "ON CONFLICT (vehicle_id) DO UPDATE SET lat = EXCLUDED.lat,lon = EXCLUDED.lon, speed = EXCLUDED.speed,\"timestamp\" = EXCLUDED.\"timestamp\", vehicle_distance_traveled = EXCLUDED.vehicle_distance_traveled";
-// cout<< insertQ + insertV + onConflict +";"<<endl;
-		pqxx::result rows = txn.exec(insertQ + insertV + onConflict +";");
+		try {
+			
+			// Start a transaction
+			pqxx::work txn(*conn);
 
-        // for (const auto& row : rows) {
-        //     cout << row["id"].as<int>() << " | "
-        //               << row["name"].as<string>() << "\n";
-        // }
 
-        txn.commit();
+			string insertQ = "INSERT INTO public.live_vehicle_position(id, agency_id, route_id, route_short_name, lon, lat, vehicle_id, \"timestamp\", vehicle_distance_traveled, speed) VALUES ";
+			string insertV = "";
 
-    } catch (const exception& e) {
-        cerr << "Error: " << e.what() << "\n";
-        return 1;
-    }
+			map<string, FeedEntity> vehicles;
 
-	auto endTime = chrono::duration_cast<chrono::microseconds>(
-      chrono::system_clock::now().time_since_epoch()
-  	).count();
+			for (int i = 0; i < feed.entity_size(); i++) {
+				FeedEntity entity = feed.entity(i);
+				if (entity.has_vehicle()) {
+					string vid = entity.vehicle().vehicle().id();
+					vehicles[vid] = entity;
+				}
+			}
+			unordered_set<string> busRoutesInThisAgency;
+			auto busRoutes = txn.exec_params("SELECT id FROM public.route WHERE agency_id = $1", uuid);
 
-  	cout << "Program End time: " << endTime << endl;
-  	cout << "Time to execute " << endTime - startTime <<endl;  
+			for (const auto& row : busRoutes) {
+				busRoutesInThisAgency.emplace(row["id"].as<string>());
+			}
+
+			for (const auto& [vid, entity] : vehicles) {
+				if (entity.has_vehicle()) {
+
+					long ts = chrono::duration_cast<chrono::seconds>(chrono::system_clock::now().time_since_epoch()).count();
+
+					string route_id = entity.vehicle().trip().route_id();
+					string lat = to_string(entity.vehicle().position().latitude());
+					string lon = to_string(entity.vehicle().position().longitude());
+					string vehicle_id = entity.vehicle().vehicle().id();
+					string odometry = to_string(entity.vehicle().position().odometer());
+					string speed = to_string(entity.vehicle().position().speed());
+
+					// filter out such records, where the routes are not in the db
+					if (route_id.empty() || busRoutesInThisAgency.find(route_id) == busRoutesInThisAgency.end())
+						continue;
+					if (!insertV.empty()) insertV += ", ";
+
+					insertV += "('" + generate_uuid_v4() + "',"
+						+ "'" + uuid + "',"
+						+ "'" + route_id + "',"
+						+ "'" + route_id + "',"
+						+ lon + ","
+						+ lat + ","
+						+ "'" + vehicle_id + "',"
+						+ "TO_TIMESTAMP(" + to_string(ts) + "),"
+						+ odometry + ","
+						+ speed + ")";
+				}
+			}
+
+			string onConflict = ""; //"ON CONFLICT (vehicle_id) DO UPDATE SET lat = EXCLUDED.lat,lon = EXCLUDED.lon, speed = EXCLUDED.speed,\"timestamp\" = EXCLUDED.\"timestamp\", vehicle_distance_traveled = EXCLUDED.vehicle_distance_traveled";
+			txn.exec_params("DELETE FROM public.live_vehicle_position WHERE agency_id = $1", uuid);
+			pqxx::result rows = txn.exec(insertQ + insertV + onConflict +";");
+
+
+			txn.commit();
+
+		} catch (const exception& e) {
+			cerr << "Error: " << e.what() << "\n";
+			return 1;
+		}
+
+		auto endTime = chrono::duration_cast<chrono::microseconds>(
+		chrono::system_clock::now().time_since_epoch()
+		).count();
+
+		cout << "Program End time: " << endTime << endl;
+		cout << "Time to execute " << endTime - startTime <<endl;  
+	}
 	return 0;
 }
 
 
 int main(int argc, char* args[]){
 
+	auto e = [](const char* v) { return v ? v : throw invalid_argument("essential env vars not set"); };
+
+	string PG_HOST = e(getenv("POSTGRES_HOST"));
+	string PG_USER = e(getenv("POSTGRES_USER"));
+	string PG_PASSWD = e(getenv("POSTGRES_PASSWORD"));
+	string PG_DB = e(getenv("POSTGRES_DB"));
+
 	// Connection string
 	pqxx::connection conn(
-		"host=postgres "
+		"host=" + PG_HOST + " "
 		"port=5432 "
-		"dbname=locate_my_bus "
-		"user=postgres "
-		"password=postgres"
+		"dbname=" + PG_DB + " "
+		"user=" + PG_USER + " "
+		"password=" + PG_PASSWD + " "
 	);
 
 	if (conn.is_open()) {
@@ -241,7 +247,7 @@ int main(int argc, char* args[]){
 	while(true){
 		cout<< "itteration: " << i++ << endl;
 		mainLogic(argc, args, &conn);
-		this_thread::sleep_for(chrono::seconds(30));
+		this_thread::sleep_for(chrono::seconds(15));
 	}
 	
 }
