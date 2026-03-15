@@ -43,7 +43,7 @@ app
         const { agency_id } = req.params
 
         const pool = new Pool({
-            connectionString: `postgresql://${process.env.POSTGRES_USER}:${process.env.POSTGRES_PASSWORD}@${process.env.POSTGRES_HOST}:5432/${process.env.POSTGRES_DB}?sslmode=require`,
+            connectionString: `postgresql://${process.env.POSTGRES_USER}:${process.env.POSTGRES_PASSWORD}@${process.env.POSTGRES_HOST}:5432/${process.env.POSTGRES_DB}`,
         })
         const { rows } = await pool.query('SELECT id, short_name  FROM public.route WHERE agency_id = $1', [agency_id]);
         res.send(rows)
@@ -52,7 +52,7 @@ app
         const { agency_id, route_id } = req.params
 
         const pool = new Pool({
-            connectionString: `postgresql://${process.env.POSTGRES_USER}:${process.env.POSTGRES_PASSWORD}@${process.env.POSTGRES_HOST}:5432/${process.env.POSTGRES_DB}?sslmode=require`,
+            connectionString: `postgresql://${process.env.POSTGRES_USER}:${process.env.POSTGRES_PASSWORD}@${process.env.POSTGRES_HOST}:5432/${process.env.POSTGRES_DB}`,
         })
         const { rows } = await pool.query('SELECT * FROM public.live_vehicle_position WHERE agency_id = $1 AND route_id = $2', [agency_id, route_id])
         res.send(rows)
@@ -69,7 +69,7 @@ app.get('/view-map', async (req, res) => {
 app.get('/api/agencies', async (req, res) => {
     try {
         const pool = new Pool({
-            connectionString: `postgresql://${process.env.POSTGRES_USER}:${process.env.POSTGRES_PASSWORD}@${process.env.POSTGRES_HOST}:5432/${process.env.POSTGRES_DB}?sslmode=require`,
+            connectionString: `postgresql://${process.env.POSTGRES_USER}:${process.env.POSTGRES_PASSWORD}@${process.env.POSTGRES_HOST}:5432/${process.env.POSTGRES_DB}`,
         })
         const { rows } = await pool.query('SELECT * FROM public.agency')
         res.json(rows.map(row => ({
@@ -105,7 +105,7 @@ app.get('/api/agencies', async (req, res) => {
 
         const { id } = req.params;
         const pool = new Pool({
-            connectionString: `postgresql://${process.env.POSTGRES_USER}:${process.env.POSTGRES_PASSWORD}@${process.env.POSTGRES_HOST}:5432/${process.env.POSTGRES_DB}?sslmode=require`,
+            connectionString: `postgresql://${process.env.POSTGRES_USER}:${process.env.POSTGRES_PASSWORD}@${process.env.POSTGRES_HOST}:5432/${process.env.POSTGRES_DB}`,
         })
         await pool.query('DELETE FROM public.agency WHERE id = $1', [id])
         res.sendStatus(204);

@@ -7,7 +7,6 @@ get-protobuf-headers:
 	mv gtfs-realtime.proto ./daemon/assets/transit_realtime.proto
 	protoc --cpp_out=. ./daemon/assets/transit_realtime.proto
 	
-
 build: 
 	mkdir -p ./daemon/build
 	g++ ./daemon/main.cpp ./daemon/assets/transit_realtime.pb.cc \
@@ -19,14 +18,38 @@ build:
 run: 
 	./daemon/build/vehiclePosition_d
 
+run-dev:
+	npm run dev
+
 docker:
 	docker build \
 	--platform linux/amd64,linux/arm64 \
 	-t ranjitnovascotia/locate-my-bus:latest \
 	-f ./daemon/Dockerfile .
 
-run-docker:
-	docker run -e POSTGRES_HOST=postgres -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=locate_my_bus -d --network locate-my-bus_devcontainer_default ranjitnovascotia/locate-my-bus:latest
+docker-web:
+	docker build \
+	--platform linux/amd64,linux/arm64 \
+	-t ranjitnovascotia/locate-my-bus:web \
+	-f ./web/Dockerfile .
 
-run-dev:
-	npm run dev
+run-docker:
+	docker run \
+	-e POSTGRES_HOST=postgres \
+	-e POSTGRES_USER=postgres \
+	-e POSTGRES_PASSWORD=postgres \
+	-e POSTGRES_DB=locate_my_bus \
+	-d \
+	--network locate-my-bus_devcontainer_default \
+	ranjitnovascotia/locate-my-bus:latest
+
+run-docker-web:
+	docker run \
+	-e POSTGRES_HOST=postgres \
+	-e POSTGRES_USER=postgres \
+	-e POSTGRES_PASSWORD=postgres \
+	-e POSTGRES_DB=locate_my_bus \
+	-e DELETE_ACCESS_KEY=supersecret \
+	-d \
+	-p 3000:3000 \
+	ranjitnovascotia/locate-my-bus:web
