@@ -3,8 +3,12 @@
         "dockerComposeFile": ["dockerCompose.yml"],
         "service": "locate-my-bus",
         "workspaceFolder": "/workspace",
+        "mounts": [
+                "source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind"
+        ],
         "features": {
-                "ghcr.io/devcontainers/features/common-utils:2": {}
+                "ghcr.io/devcontainers/features/common-utils:2": {},
+                "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {}
         },
         "postCreateCommand": "bash .devcontainer/postCreateScript.sh"
   }

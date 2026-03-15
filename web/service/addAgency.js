@@ -12,7 +12,7 @@ const onBoardAgency = async (rt_feed_url, static_feed_url) => {
     )
 
     const pool = new Pool({
-        connectionString: `postgresql://${process.env.POSTGRES_USER}:${process.env.POSTGRES_PASSWORD}@postgres:5432/${process.env.POSTGRES_DB}`,
+        connectionString: `postgresql://${process.env.POSTGRES_USER}:${process.env.POSTGRES_PASSWORD}@${process.env.POSTGRES_HOST}:5432/${process.env.POSTGRES_DB}?sslmode=require`,
     });
 
     const client = await pool.connect();

@@ -18,3 +18,15 @@ build:
 
 run: 
 	./daemon/build/vehiclePosition_d
+
+docker:
+	docker build \
+	--platform linux/amd64,linux/arm64 \
+	-t ranjitnovascotia/locate-my-bus:latest \
+	-f ./daemon/Dockerfile .
+
+run-docker:
+	docker run -e POSTGRES_HOST=postgres -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=locate_my_bus -d --network locate-my-bus_devcontainer_default ranjitnovascotia/locate-my-bus:latest
+
+run-dev:
+	npm run dev

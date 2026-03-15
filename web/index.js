@@ -11,9 +11,15 @@ app.use(helmet({
         directives: {
             defaultSrc: ["'self'"],
             scriptSrc: ["'self'", "https://cdn.jsdelivr.net", "'unsafe-inline'"],
-            styleSrc: ["'self'", "https://cdn.jsdelivr.net", "'unsafe-inline'"],
-            fontSrc: ["'self'", "https://cdn.jsdelivr.net"],
-            imgSrc: ["'self'", "data:", "https://*.tile.openstreetmap.org"],
+            styleSrc: ["'self'", "https://cdn.jsdelivr.net", "https://cdnjs.cloudflare.com", "'unsafe-inline'"],
+            fontSrc: ["'self'", "https://cdn.jsdelivr.net", "https://cdnjs.cloudflare.com"],
+            imgSrc: [
+                "'self'",
+                "data:",
+                "https://*.tile.openstreetmap.org",
+                "https://*.basemaps.cartocdn.com",
+                "https://tiles.stadiamaps.com",
+            ],
             connectSrc: ["'self'", "https://cdn.jsdelivr.net"],
         },
     },
@@ -37,7 +43,7 @@ app
         const { agency_id } = req.params
 
         const pool = new Pool({
-            connectionString: `postgresql://${process.env.POSTGRES_USER}:${process.env.POSTGRES_PASSWORD}@postgres:5432/${process.env.POSTGRES_DB}`,
+            connectionString: `postgresql://${process.env.POSTGRES_USER}:${process.env.POSTGRES_PASSWORD}@${process.env.POSTGRES_HOST}:5432/${process.env.POSTGRES_DB}?sslmode=require`,
         })
         const { rows } = await pool.query('SELECT id, short_name  FROM public.route WHERE agency_id = $1', [agency_id]);
         res.send(rows)
@@ -46,7 +52,7 @@ app
         const { agency_id, route_id } = req.params
 
         const pool = new Pool({
-            connectionString: `postgresql://${process.env.POSTGRES_USER}:${process.env.POSTGRES_PASSWORD}@postgres:5432/${process.env.POSTGRES_DB}`,
+            connectionString: `postgresql://${process.env.POSTGRES_USER}:${process.env.POSTGRES_PASSWORD}@${process.env.POSTGRES_HOST}:5432/${process.env.POSTGRES_DB}?sslmode=require`,
         })
         const { rows } = await pool.query('SELECT * FROM public.live_vehicle_position WHERE agency_id = $1 AND route_id = $2', [agency_id, route_id])
         res.send(rows)
@@ -57,14 +63,13 @@ app.get('/dash/agencies', async (req, res) => {
 });
 
 app.get('/view-map', async (req, res) => {
-    console.log('Serving map-poc.html');
     return res.sendFile(path.join(__dirname, 'public/map-poc.html'))
 });
 
 app.get('/api/agencies', async (req, res) => {
     try {
         const pool = new Pool({
-            connectionString: `postgresql://${process.env.POSTGRES_USER}:${process.env.POSTGRES_PASSWORD}@postgres:5432/${process.env.POSTGRES_DB}`,
+            connectionString: `postgresql://${process.env.POSTGRES_USER}:${process.env.POSTGRES_PASSWORD}@${process.env.POSTGRES_HOST}:5432/${process.env.POSTGRES_DB}?sslmode=require`,
         })
         const { rows } = await pool.query('SELECT * FROM public.agency')
         res.json(rows.map(row => ({
@@ -75,8 +80,6 @@ app.get('/api/agencies', async (req, res) => {
             language: row.lang,
             phone: row.phone,
             fare_url: row.fare_url,
-            rt_feed_url: row.rt_feed_url,
-            static_feed_url: row.static_feed_url,
         })))
     } catch (err) {
         console.error(err);
@@ -102,7 +105,7 @@ app.get('/api/agencies', async (req, res) => {
 
         const { id } = req.params;
         const pool = new Pool({
-            connectionString: `postgresql://${process.env.POSTGRES_USER}:${process.env.POSTGRES_PASSWORD}@postgres:5432/${process.env.POSTGRES_DB}`,
+            connectionString: `postgresql://${process.env.POSTGRES_USER}:${process.env.POSTGRES_PASSWORD}@${process.env.POSTGRES_HOST}:5432/${process.env.POSTGRES_DB}?sslmode=require`,
         })
         await pool.query('DELETE FROM public.agency WHERE id = $1', [id])
         res.sendStatus(204);
