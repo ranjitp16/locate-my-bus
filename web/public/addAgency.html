@@ -182,9 +182,39 @@
     })();
 
     /* ── Table helpers ── */
-    function urlCell(href) {
-        if (!href) return '—';
-        return `<a href="${href}" target="_blank" title="${href}" style="color:var(--accent);"><i class="fa-solid fa-arrow-up-right-from-square fa-sm"></i></a>`;
+
+    // Only allow http/https to prevent javascript: or data: URLs
+    function safeHref(raw) {
+        if (!raw) return null;
+        try {
+            const url = new URL(raw);
+            if (url.protocol !== 'https:' && url.protocol !== 'http:') return null;
+            return url.href;
+        } catch {
+            return null;
+        }
+    }
+
+    // Returns a <td> built entirely with DOM APIs — no innerHTML interpolation
+    function urlCell(raw) {
+        const td = document.createElement('td');
+        td.className = 'url-cell';
+        const safe = safeHref(raw);
+        if (!safe) {
+            td.textContent = '—';
+            return td;
+        }
+        const a = document.createElement('a');
+        a.href = safe;
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        a.title = safe;
+        a.style.color = 'var(--accent)';
+        const icon = document.createElement('i');
+        icon.className = 'fa-solid fa-arrow-up-right-from-square fa-sm';
+        a.appendChild(icon);
+        td.appendChild(a);
+        return td;
     }
 
     function loadAgencies() {
@@ -199,19 +229,40 @@
                 agencies.forEach(a => {
                     const tr = document.createElement('tr');
                     tr.dataset.id = a.id;
-                    tr.innerHTML = `
-                        <td><strong>${a.name || '—'}</strong></td>
-                        <td class="url-cell">${urlCell(a.url)}</td>
-                        <td><span class="badge">${a.timezone || '—'}</span></td>
-                        <td>${a.language || '—'}</td>
-                        <td>${a.phone || '—'}</td>
-                        <td class="url-cell">${urlCell(a.fare_url)}</td>
-                        <td>
-                            <button class="btn btn-outline-danger btn-sm" data-delete-id="${a.id}">
-                                Delete
-                            </button>
-                        </td>
-                    `;
+
+                    const tdName = document.createElement('td');
+                    const strong = document.createElement('strong');
+                    strong.textContent = a.name || '—';
+                    tdName.appendChild(strong);
+                    tr.appendChild(tdName);
+
+                    tr.appendChild(urlCell(a.url));
+
+                    const tdTz = document.createElement('td');
+                    const badge = document.createElement('span');
+                    badge.className = 'badge';
+                    badge.textContent = a.timezone || '—';
+                    tdTz.appendChild(badge);
+                    tr.appendChild(tdTz);
+
+                    const tdLang = document.createElement('td');
+                    tdLang.textContent = a.language || '—';
+                    tr.appendChild(tdLang);
+
+                    const tdPhone = document.createElement('td');
+                    tdPhone.textContent = a.phone || '—';
+                    tr.appendChild(tdPhone);
+
+                    tr.appendChild(urlCell(a.fare_url));
+
+                    const tdDel = document.createElement('td');
+                    const delBtn = document.createElement('button');
+                    delBtn.className = 'btn btn-outline-danger btn-sm';
+                    delBtn.dataset.deleteId = a.id;
+                    delBtn.textContent = 'Delete';
+                    tdDel.appendChild(delBtn);
+                    tr.appendChild(tdDel);
+
                     tbody.appendChild(tr);
                 });
             })
@@ -295,7 +346,12 @@
                     if (document.getElementById('agency-tbody').children.length === 0) {
                         const emptyRow = document.createElement('tr');
                         emptyRow.id = 'empty-row';
-                        emptyRow.innerHTML = '<td colspan="9" class="text-center py-4" style="color:var(--text-muted);font-style:italic;">No agencies added yet.</td>';
+                        const emptyCell = document.createElement('td');
+                        emptyCell.colSpan = 9;
+                        emptyCell.className = 'text-center py-4';
+                        emptyCell.style.cssText = 'color:var(--text-muted);font-style:italic;';
+                        emptyCell.textContent = 'No agencies added yet.';
+                        emptyRow.appendChild(emptyCell);
                         document.getElementById('agency-tbody').appendChild(emptyRow);
                     }
                 } else if (r.status === 401) {

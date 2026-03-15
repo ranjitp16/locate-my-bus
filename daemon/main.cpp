@@ -11,6 +11,7 @@
 #include <chrono>
 #include <format>
 #include <thread>
+#include <unordered_set>
 
 using namespace std;
 using namespace transit_realtime;
@@ -160,18 +161,18 @@ int mainLogic(int argc, char* args[], pqxx::connection* conn){
 					vehicles[vid] = entity;
 				}
 			}
-			vector<string> busRoutesInThisAgency;
-			auto busRoutes = txn.exec_params("SELECT * FROM public.route WHERE agency_id = $1", uuid);
+			unordered_set<string> busRoutesInThisAgency;
+			auto busRoutes = txn.exec_params("SELECT id FROM public.route WHERE agency_id = $1", uuid);
 
 			for (const auto& row : busRoutes) {
-            	busRoutesInThisAgency.emplace_back(row["id"].as<string>());
+				busRoutesInThisAgency.emplace(row["id"].as<string>());
 			}
 
 			for (const auto& [vid, entity] : vehicles) {
 				if (entity.has_vehicle()) {
-					
+
 					long ts = chrono::duration_cast<chrono::seconds>(chrono::system_clock::now().time_since_epoch()).count();
-					
+
 					string route_id = entity.vehicle().trip().route_id();
 					string lat = to_string(entity.vehicle().position().latitude());
 					string lon = to_string(entity.vehicle().position().longitude());
@@ -179,9 +180,8 @@ int mainLogic(int argc, char* args[], pqxx::connection* conn){
 					string odometry = to_string(entity.vehicle().position().odometer());
 					string speed = to_string(entity.vehicle().position().speed());
 
-					// filter out such records, where the routes are not in the db 
-					auto it = find(busRoutesInThisAgency.begin(), busRoutesInThisAgency.end(), route_id);
-					if(route_id.empty() || it == busRoutesInThisAgency.end() ) 
+					// filter out such records, where the routes are not in the db
+					if (route_id.empty() || busRoutesInThisAgency.find(route_id) == busRoutesInThisAgency.end())
 						continue;
 					if (!insertV.empty()) insertV += ", ";
 

@@ -138,6 +138,17 @@
         applyTheme(document.documentElement.getAttribute('data-theme') || 'light');
     })();
 
+    /* ── HTML escaping ── */
+    function escapeHtml(value) {
+        if (value === null || value === undefined) return '';
+        return String(value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
     /* ── Map ── */
     const map = L.map('map', { zoomControl: true }).setView([44.6488, -63.5752], 13);
 
@@ -191,7 +202,7 @@
     const savedZoom = parseInt(localStorage.getItem('map-zoom'), 10);
     const savedLat  = parseFloat(localStorage.getItem('map-lat'));
     const savedLon  = parseFloat(localStorage.getItem('map-lon'));
-    let hasSavedPosition = !!(savedZoom && savedLat && savedLon);
+    let hasSavedPosition = Number.isFinite(savedZoom) && Number.isFinite(savedLat) && Number.isFinite(savedLon);
     if (hasSavedPosition) {
         map.setView([savedLat, savedLon], savedZoom);
     }
@@ -228,10 +239,10 @@
             const age = Math.round((Date.now() - Date.parse(v.timestamp)) / 1000);
             const popup = L.popup({ offset: [0, -28], autoPan: false })
                 .setContent(
-                    `<b>Route:</b> ${v.route_id}<br>` +
-                    `<b>Vehicle:</b> ${v.vehicle_id}<br>` +
-                    `<b>Speed:</b> ${v.speed ?? '—'} m/s<br>` +
-                    `<b>Updated:</b> ${age}s ago`
+                    `<b>Route:</b> ${escapeHtml(v.route_id)}<br>` +
+                    `<b>Vehicle:</b> ${escapeHtml(v.vehicle_id)}<br>` +
+                    `<b>Speed:</b> ${v.speed != null ? escapeHtml(v.speed) : '—'} m/s<br>` +
+                    `<b>Updated:</b> ${escapeHtml(age)}s ago`
                 );
 
             const marker = L.marker([v.lat, v.lon], { icon: isPinned ? busPinnedIcon : busIcon })
@@ -291,9 +302,9 @@
                 routes.forEach(r => {
                     const opt = document.createElement('option');
                     opt.value = r.id;
-                    opt.textContent = r.route_short_name
-                        ? `${r.route_short_name} — ${r.route_long_name ?? r.id}`
-                        : (r.route_long_name ?? r.id);
+                    opt.textContent = r.short_name
+                        ? `${r.short_name} — ${r.id}`
+                        : (r.id);
                     if (restoreRoute && savedRoute && r.id === savedRoute) opt.selected = true;
                     routeSelect.appendChild(opt);
                 });
@@ -309,17 +320,45 @@
     /* ── Agency details panel ── */
     let agenciesCache = [];
 
+    function safeHref(raw) {
+        if (!raw) return null;
+        try {
+            const url = new URL(raw);
+            if (url.protocol !== 'https:' && url.protocol !== 'http:') return null;
+            return url.href;
+        } catch {
+            return null;
+        }
+    }
+
+    function makeLink(raw, label) {
+        const href = safeHref(raw);
+        if (!href) return null;
+        const a = document.createElement('a');
+        a.href = href;
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        a.textContent = label ?? href;
+        return a;
+    }
+
     function updateDetails(agencyId) {
         const a = agenciesCache.find(x => x.id === agencyId);
         if (!a) return;
 
-        const phone   = document.getElementById('detail-phone');
-        const url     = document.getElementById('detail-url');
-        const fare    = document.getElementById('detail-fare');
+        const phoneEl = document.getElementById('detail-phone');
+        const urlEl   = document.getElementById('detail-url');
+        const fareEl  = document.getElementById('detail-fare');
 
-        phone.innerHTML = a.phone   ? `📞 ${a.phone}` : '';
-        url.innerHTML   = a.url     ? `🌐 <a href="${a.url}" target="_blank">${a.url}</a>` : '';
-        fare.innerHTML  = a.fare_url ? `🎫 <a href="${a.fare_url}" target="_blank">Fare info</a>` : '';
+        phoneEl.textContent = a.phone ? `📞 ${a.phone}` : '';
+
+        urlEl.textContent = '';
+        const urlLink = makeLink(a.url, a.url);
+        if (urlLink) { urlEl.textContent = '🌐 '; urlEl.appendChild(urlLink); }
+
+        fareEl.textContent = '';
+        const fareLink = makeLink(a.fare_url, 'Fare info');
+        if (fareLink) { fareEl.textContent = '🎫 '; fareEl.appendChild(fareLink); }
     }
 
     document.getElementById('details-toggle').addEventListener('click', function () {

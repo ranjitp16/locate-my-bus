@@ -3,6 +3,10 @@ const request = require('request');
 const unzip = require('unzipper');
 const { handleWriteFromAgency, handleWriteFromRoutes } = require('../repository/addAgency.js');
 
+const pool = new Pool({
+    connectionString: `postgresql://${process.env.POSTGRES_USER}:${process.env.POSTGRES_PASSWORD}@${process.env.POSTGRES_HOST}:5432/${process.env.POSTGRES_DB}`,
+});
+
 const onBoardAgency = async (rt_feed_url, static_feed_url) => {
     // Download and parse the GTFS feed from static_feed_url as a stream, then extract agency.txt and insert its contents into the database
     // TODO: Handle where content.length is not provided by the server
@@ -10,10 +14,6 @@ const onBoardAgency = async (rt_feed_url, static_feed_url) => {
         request,
         static_feed_url
     )
-
-    const pool = new Pool({
-        connectionString: `postgresql://${process.env.POSTGRES_USER}:${process.env.POSTGRES_PASSWORD}@${process.env.POSTGRES_HOST}:5432/${process.env.POSTGRES_DB}`,
-    });
 
     const client = await pool.connect();
     try {
@@ -31,7 +31,7 @@ const onBoardAgency = async (rt_feed_url, static_feed_url) => {
     } catch (err) {
         await client.query('ROLLBACK');
         console.error(err);
-        throw new Error(err);
+        throw err;
     } finally {
         client.release();
     }

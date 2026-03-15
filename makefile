@@ -35,21 +35,22 @@ docker-web:
 
 run-docker:
 	docker run \
-	-e POSTGRES_HOST=postgres \
-	-e POSTGRES_USER=postgres \
-	-e POSTGRES_PASSWORD=postgres \
-	-e POSTGRES_DB=locate_my_bus \
+	-e POSTGRES_HOST=$(POSTGRES_HOST) \
+	-e POSTGRES_USER=$(POSTGRES_USER) \
+	-e POSTGRES_PASSWORD=$(POSTGRES_PASSWORD) \
+	-e POSTGRES_DB=$(POSTGRES_DB) \
 	-d \
 	--network locate-my-bus_devcontainer_default \
 	ranjitnovascotia/locate-my-bus:latest
 
 run-docker-web:
+	@test -n "$(DELETE_ACCESS_KEY)" || (echo "ERROR: DELETE_ACCESS_KEY is not set. Export it before running this target." && exit 1)
 	docker run \
-	-e POSTGRES_HOST=postgres \
-	-e POSTGRES_USER=postgres \
-	-e POSTGRES_PASSWORD=postgres \
-	-e POSTGRES_DB=locate_my_bus \
-	-e DELETE_ACCESS_KEY=supersecret \
+	-e POSTGRES_HOST=$(POSTGRES_HOST) \
+	-e POSTGRES_USER=$(POSTGRES_USER) \
+	-e POSTGRES_PASSWORD=$(POSTGRES_PASSWORD) \
+	-e POSTGRES_DB=$(POSTGRES_DB) \
+	-e DELETE_ACCESS_KEY=$(DELETE_ACCESS_KEY) \
 	-d \
 	-p 3000:3000 \
 	ranjitnovascotia/locate-my-bus:web

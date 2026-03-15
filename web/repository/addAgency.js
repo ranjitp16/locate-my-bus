@@ -84,6 +84,9 @@ const handleWriteFromRoutes = async (client, fileName, tableName, decompressed, 
         }
     });
 
+    // Build a lookup map from GTFS agency_id → UUID once, before iterating rows
+    const agencyLookup = new Map(listOfAgencyGuids.map(it => [it.agency_id, it.uuid]));
+
     // Extract values from each line and insert into the database, mapping feed columns to table columns (removing route_ prefix) and adding rt_feed_url and static_feed_url
     for (const line of lines) {
         const values = line.split(',').map(v => v.trim());
@@ -93,7 +96,11 @@ const handleWriteFromRoutes = async (client, fileName, tableName, decompressed, 
 
         header.forEach((h, i) => {
             if (h === "agency_id") {
-                params.push(listOfAgencyGuids.filter(it => it.agency_id === values[i])[0]?.uuid || null);
+                const uuid = agencyLookup.get(values[i]);
+                if (!uuid) {
+                    throw new Error(`Route references unknown agency_id "${values[i]}" — no matching agency was imported.`);
+                }
+                params.push(uuid);
             } else if (sanitized_table_headers_no_id.some(sh => sh.column_name === h.replace(`${tableName}_`, ''))) {
                 params.push(values[i] || null);
             }

@@ -6,6 +6,10 @@ const port = 3000;
 const { Pool } = require('pg');
 const { onBoardAgency } = require('./service/addAgency');
 
+const pool = new Pool({
+    connectionString: `postgresql://${process.env.POSTGRES_USER}:${process.env.POSTGRES_PASSWORD}@${process.env.POSTGRES_HOST}:5432/${process.env.POSTGRES_DB}`,
+});
+
 app.use(helmet({
     contentSecurityPolicy: {
         directives: {
@@ -41,19 +45,11 @@ app.use(express.urlencoded({ extended: true }));
 app
     .get('/routes/:agency_id', async (req, res) => {
         const { agency_id } = req.params
-
-        const pool = new Pool({
-            connectionString: `postgresql://${process.env.POSTGRES_USER}:${process.env.POSTGRES_PASSWORD}@${process.env.POSTGRES_HOST}:5432/${process.env.POSTGRES_DB}`,
-        })
-        const { rows } = await pool.query('SELECT id, short_name  FROM public.route WHERE agency_id = $1', [agency_id]);
+        const { rows } = await pool.query('SELECT id, short_name FROM public.route WHERE agency_id = $1', [agency_id]);
         res.send(rows)
     })
     .get('/live/:agency_id/:route_id', async (req, res) => {
         const { agency_id, route_id } = req.params
-
-        const pool = new Pool({
-            connectionString: `postgresql://${process.env.POSTGRES_USER}:${process.env.POSTGRES_PASSWORD}@${process.env.POSTGRES_HOST}:5432/${process.env.POSTGRES_DB}`,
-        })
         const { rows } = await pool.query('SELECT * FROM public.live_vehicle_position WHERE agency_id = $1 AND route_id = $2', [agency_id, route_id])
         res.send(rows)
     })
@@ -68,9 +64,6 @@ app.get('/view-map', async (req, res) => {
 
 app.get('/api/agencies', async (req, res) => {
     try {
-        const pool = new Pool({
-            connectionString: `postgresql://${process.env.POSTGRES_USER}:${process.env.POSTGRES_PASSWORD}@${process.env.POSTGRES_HOST}:5432/${process.env.POSTGRES_DB}`,
-        })
         const { rows } = await pool.query('SELECT * FROM public.agency')
         res.json(rows.map(row => ({
             id: row.id,
@@ -93,6 +86,10 @@ app.get('/api/agencies', async (req, res) => {
             return res.status(400).json({ error: 'static_feed_url is required.' });
         }
 
+        if (!rt_feed_url) {
+            return res.status(400).json({ error: 'rt_feed_url is required.' });
+        }
+
         await onBoardAgency(rt_feed_url, static_feed_url);
 
         res.sendStatus(201);
@@ -104,9 +101,6 @@ app.get('/api/agencies', async (req, res) => {
     try {
 
         const { id } = req.params;
-        const pool = new Pool({
-            connectionString: `postgresql://${process.env.POSTGRES_USER}:${process.env.POSTGRES_PASSWORD}@${process.env.POSTGRES_HOST}:5432/${process.env.POSTGRES_DB}`,
-        })
         await pool.query('DELETE FROM public.agency WHERE id = $1', [id])
         res.sendStatus(204);
     } catch (err) {

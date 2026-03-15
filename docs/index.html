@@ -300,13 +300,16 @@
     <div class="hero" id="about">
       <p class="comment">// real-time transit tracking</p>
       <h1>locate-my-bus</h1>
-      <p class="subtitle">Halifax Transit &mdash; live vehicle positions on a map</p>
+      <p class="subtitle">Any GTFS-RT agency &mdash; live vehicle positions on a map</p>
       <p>
-        A C++ daemon fetches GTFS-RT vehicle position data from Halifax Transit every 30 seconds,
-        upserts it into PostgreSQL, and serves it to a Leaflet.js map in the browser.
-        No duplicates. No page reloads. Just buses.
+        Onboard any GTFS-compatible transit agency, and a C++ daemon fetches live vehicle positions
+        every 30 seconds per agency, upserts them into PostgreSQL, and serves them to a Leaflet.js
+        map in the browser. Dynamic agency and route selectors, pinnable markers, light/dark theme.
       </p>
       <div class="links">
+        <a href="https://bus.ranjitpandey.dev">
+          ↗ live demo
+        </a>
         <a href="https://github.com/ranjitp16/locate-my-bus">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/></svg>
           source code
@@ -329,20 +332,24 @@
       <p class="section-label">how it works</p>
       <div class="stack">
         <div class="stack-item">
+          <h3>Agency onboarding</h3>
+          <p>Provide a GTFS static zip URL and a GTFS-RT feed URL. The server downloads the zip, parses <code>agency.txt</code> and <code>routes.txt</code>, and inserts them into PostgreSQL in a single transaction.</p>
+        </div>
+        <div class="stack-item">
           <h3>C++ daemon</h3>
-          <p>Downloads the GTFS-RT protobuf feed from Halifax Transit every 30 seconds, deduplicates by vehicle ID, and upserts positions into PostgreSQL.</p>
+          <p>Reads all onboarded agencies from the DB, downloads each GTFS-RT protobuf feed every 30 seconds, and upserts live vehicle positions into PostgreSQL.</p>
         </div>
         <div class="stack-item">
           <h3>PostgreSQL</h3>
-          <p>Stores one row per vehicle — <code>ON CONFLICT (vehicle_id) DO UPDATE</code> keeps only the latest position, no duplicates ever.</p>
+          <p>Stores agencies, routes, shapes, trips, and live positions. <code>ON DELETE CASCADE</code> keeps everything consistent when an agency is removed.</p>
         </div>
         <div class="stack-item">
           <h3>Node.js / Express</h3>
-          <p>Exposes <code>GET /:route_id</code> which queries the DB and returns JSON. Also serves the static frontend.</p>
+          <p>Exposes <code>GET /live/:agency_id/:route_id</code> for live positions, <code>GET /routes/:agency_id</code> for route lists, and a CRUD API for agencies. Write operations require an <code>x-access-key</code> header.</p>
         </div>
         <div class="stack-item">
           <h3>Leaflet.js map</h3>
-          <p>Polls the API every 30 seconds, clears old markers, and re-renders updated vehicle positions. Click any marker for route, speed, and timestamp details.</p>
+          <p>Dynamic agency and route selectors populate from the API. Polls every 15 seconds. Click a marker to pin it — the map follows that bus on every update. Light/dark theme and zoom position persist across sessions.</p>
         </div>
       </div>
     </section>
@@ -358,6 +365,8 @@
         <span class="tag">Node.js</span>
         <span class="tag">Express</span>
         <span class="tag">Leaflet.js</span>
+        <span class="tag">Bootstrap 5</span>
+        <span class="tag">Docker</span>
         <span class="tag">Dev Containers</span>
       </div>
     </section>
@@ -380,13 +389,18 @@
         </div>
         <div class="step">
           <p class="step-label">$ 04</p>
-          <code>make run</code>
-          <p>Daemon starts polling Halifax Transit and writing to the DB.</p>
+          <code>npm run dev</code>
+          <p>Open <code>http://localhost:3000</code> and use <b>Manage Agencies</b> to onboard a GTFS agency.</p>
         </div>
         <div class="step">
           <p class="step-label">$ 05</p>
-          <code>npm run dev</code>
-          <p>Open <code>http://localhost:3000</code> to see the live map.</p>
+          <code>make run</code>
+          <p>Daemon polls all onboarded agencies every 30 s and writes live positions to the DB.</p>
+        </div>
+        <div class="step">
+          <p class="step-label">$ 06</p>
+          <code>http://localhost:3000/view-map</code>
+          <p>Select an agency and route — buses appear within 30 seconds.</p>
         </div>
       </div>
     </section>
