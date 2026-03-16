@@ -11,6 +11,9 @@ const pool = new Pool({
 });
 
 app.use(helmet({
+    referrerPolicy: {
+        policy: "strict-origin-when-cross-origin", // sends Referer to same-origin and HTTPS cross-origin
+    },
     contentSecurityPolicy: {
         directives: {
             defaultSrc: ["'self'"],
