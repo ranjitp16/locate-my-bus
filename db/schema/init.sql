@@ -39,6 +39,19 @@ CREATE TABLE IF NOT EXISTS public.live_vehicle_position (
     CONSTRAINT fk_agency    FOREIGN KEY (agency_id)            REFERENCES public.agency (id)              ON DELETE CASCADE,
     CONSTRAINT fk_route     FOREIGN KEY (agency_id, route_id)  REFERENCES public.route (agency_id, id)    ON DELETE CASCADE
 );
+
+ALTER TABLE public.agency 
+ADD COLUMN api_key_in_header VARCHAR(300),
+ALTER COLUMN url TYPE VARCHAR(1000),
+ALTER COLUMN fare_url TYPE VARCHAR(1000);
+
+ALTER TABLE public.route
+ALTER COLUMN short_name TYPE VARCHAR(100),
+ALTER COLUMN long_name TYPE VARCHAR(200);
+
+ALTER TABLE public.live_vehicle_position
+ADD COLUMN head_bearing DOUBLE PRECISION;
+
 -- Represents the shape as a whole (one row per shape)
 CREATE TABLE IF NOT EXISTS public.shape (
     id                          VARCHAR(45)     NOT NULL,
