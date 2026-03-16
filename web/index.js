@@ -26,8 +26,16 @@ app.use(helmet({
                 "https://*.tile.openstreetmap.org",
                 "https://*.basemaps.cartocdn.com",
                 "https://tiles.stadiamaps.com",
-            ],
-            connectSrc: ["'self'", "https://cdn.jsdelivr.net", "https://www.googletagmanager.com"],
+                "https://www.google-analytics.com",
+                "https://*.google-analytics.com",
+             ],
+             connectSrc: [
+                 "'self'",
+                 "https://cdn.jsdelivr.net",
+                 "https://www.googletagmanager.com",
+                 "https://www.google-analytics.com",
+                 "https://*.google-analytics.com",
+                ]
         },
     },
 }))
