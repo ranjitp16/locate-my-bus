@@ -21,7 +21,7 @@ const handleWriteFromAgency = async (client, fileName, tableName, decompressed, 
     // Validate that the feed contains all required columns (except id, rt_feed_url, static_feed_url)
     sanitized_table_headers.forEach(h => {
         if (!s_header.includes(`${tableName}_${h.column_name}`)) {
-            throw new Error(`GTFS feed is missing required column: ${h.column_name}`);
+            console.log(`GTFS feed ${static_feed_url} is missing required column: ${h.column_name}`);
         }
     });
 

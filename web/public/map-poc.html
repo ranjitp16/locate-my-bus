@@ -302,8 +302,8 @@
                 routes.forEach(r => {
                     const opt = document.createElement('option');
                     opt.value = r.id;
-                    opt.textContent = r.short_name
-                        ? `${r.short_name} — ${r.id}`
+                    opt.textContent = r.long_name
+                        ? `${r.id} — ${r.long_name}`
                         : (r.id);
                     if (restoreRoute && savedRoute && r.id === savedRoute) opt.selected = true;
                     routeSelect.appendChild(opt);

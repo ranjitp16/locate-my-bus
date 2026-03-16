@@ -45,7 +45,7 @@ app.use(express.urlencoded({ extended: true }));
 app
     .get('/routes/:agency_id', async (req, res) => {
         const { agency_id } = req.params
-        const { rows } = await pool.query('SELECT id, short_name FROM public.route WHERE agency_id = $1', [agency_id]);
+        const { rows } = await pool.query('SELECT id, long_name FROM public.route WHERE agency_id = $1', [agency_id]);
         res.send(rows)
     })
     .get('/live/:agency_id/:route_id', async (req, res) => {
