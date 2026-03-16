@@ -11,10 +11,13 @@ const pool = new Pool({
 });
 
 app.use(helmet({
+    referrerPolicy: {
+        policy: "strict-origin-when-cross-origin", // sends Referer to same-origin and HTTPS cross-origin
+    },
     contentSecurityPolicy: {
         directives: {
             defaultSrc: ["'self'"],
-            scriptSrc: ["'self'", "https://cdn.jsdelivr.net", "'unsafe-inline'"],
+            scriptSrc: ["'self'", "https://cdn.jsdelivr.net", "'unsafe-inline'", "https://www.googletagmanager.com"],
             styleSrc: ["'self'", "https://cdn.jsdelivr.net", "https://cdnjs.cloudflare.com", "'unsafe-inline'"],
             fontSrc: ["'self'", "https://cdn.jsdelivr.net", "https://cdnjs.cloudflare.com"],
             imgSrc: [
@@ -23,8 +26,16 @@ app.use(helmet({
                 "https://*.tile.openstreetmap.org",
                 "https://*.basemaps.cartocdn.com",
                 "https://tiles.stadiamaps.com",
-            ],
-            connectSrc: ["'self'", "https://cdn.jsdelivr.net"],
+                "https://www.google-analytics.com",
+                "https://*.google-analytics.com",
+             ],
+             connectSrc: [
+                 "'self'",
+                 "https://cdn.jsdelivr.net",
+                 "https://www.googletagmanager.com",
+                 "https://www.google-analytics.com",
+                 "https://*.google-analytics.com",
+                ]
         },
     },
 }))
