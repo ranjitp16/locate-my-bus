@@ -14,7 +14,7 @@ app.use(helmet({
     contentSecurityPolicy: {
         directives: {
             defaultSrc: ["'self'"],
-            scriptSrc: ["'self'", "https://cdn.jsdelivr.net", "'unsafe-inline'"],
+            scriptSrc: ["'self'", "https://cdn.jsdelivr.net", "'unsafe-inline'", "https://www.googletagmanager.com"],
             styleSrc: ["'self'", "https://cdn.jsdelivr.net", "https://cdnjs.cloudflare.com", "'unsafe-inline'"],
             fontSrc: ["'self'", "https://cdn.jsdelivr.net", "https://cdnjs.cloudflare.com"],
             imgSrc: [
@@ -24,7 +24,7 @@ app.use(helmet({
                 "https://*.basemaps.cartocdn.com",
                 "https://tiles.stadiamaps.com",
             ],
-            connectSrc: ["'self'", "https://cdn.jsdelivr.net"],
+            connectSrc: ["'self'", "https://cdn.jsdelivr.net", "https://www.googletagmanager.com"],
         },
     },
 }))
