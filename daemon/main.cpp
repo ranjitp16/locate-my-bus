@@ -146,7 +146,7 @@ int mainLogic(int argc, char* args[], pqxx::connection* conn){
 
 		stringstream ss;
 
-		cout << rt_feed_url << " -> " << api_key  << endl;
+		cout << "rt_feed: " << rt_feed_url << ", api_key(if any): " << api_key  << endl;
 		if (isFileProvidedAlredy(args)) {
 		ifstream file(getValueFromTag(args, "-f"), ios::in | ios::binary);
 		ss << file.rdbuf();
