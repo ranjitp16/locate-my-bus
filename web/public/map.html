@@ -159,19 +159,18 @@
         attribution: '&copy; OpenStreetMap contributors',
     }).addTo(map);
 
-    const busIcon = L.divIcon({
-        html: '<span style="font-size:22px;line-height:1;display:block;">🚌</span>',
-        className: '',
-        iconSize: [22, 22],
-        iconAnchor: [11, 11],
-    });
-
-    const busPinnedIcon = L.divIcon({
-        html: '<span style="font-size:22px;line-height:1;display:block;filter:drop-shadow(0 0 4px var(--accent,#388bfd));">🚌</span>',
-        className: '',
-        iconSize: [22, 22],
-        iconAnchor: [11, 11],
-    });
+    function makeBusIcon(head_bearing, pinned) {
+        // Icon faces LEFT (west = 90° aka -90°), so add 90° to align with bearing
+        const deg    = (head_bearing != null && Number.isFinite(head_bearing)) ? head_bearing + 90 : 0;
+        return L.divIcon({
+            html: `<div style="transform:rotate(${deg}deg);transform-origin:center;font-size:24px;'}">
+                    🚌
+                </div>`,
+            className: '',
+            iconSize: [24, 24],
+            iconAnchor: [12, 12],
+        });
+    }
 
     let markers = [];
     let pollTimer = null;
@@ -245,10 +244,11 @@
                     `<b>Route:</b> ${escapeHtml(v.route_id)}<br>` +
                     `<b>Vehicle:</b> ${escapeHtml(v.vehicle_id)}<br>` +
                     `<b>Speed:</b> ${v.speed != null ? escapeHtml(v.speed) : '—'} m/s<br>` +
+                    `<b>Bearing:</b> ${v.head_bearing != null ? escapeHtml(v.head_bearing) + '°' : '—'}<br>` +
                     `<b>Updated:</b> ${escapeHtml(age)}s ago`
                 );
 
-            const marker = L.marker([v.lat, v.lon], { icon: isPinned ? busPinnedIcon : busIcon })
+            const marker = L.marker([v.lat, v.lon], { icon: makeBusIcon(v.head_bearing, isPinned) })
                 .addTo(map)
                 .bindPopup(popup);
 
