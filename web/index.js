@@ -28,7 +28,6 @@ app.use(helmet({
                 "https://tiles.stadiamaps.com",
                 "https://www.google-analytics.com",
                 "https://*.google-analytics.com",
-                "https://cdn.buymeacoffee.com",
              ],
              connectSrc: [
                  "'self'",
@@ -71,7 +70,7 @@ app.get('/dash/agencies', async (req, res) => {
 });
 
 app.get('/view-map', async (req, res) => {
-    return res.sendFile(path.join(__dirname, 'public/map-poc.html'))
+    return res.sendFile(path.join(__dirname, 'public/map.html'))
 });
 
 app.get('/api/agencies', async (req, res) => {
