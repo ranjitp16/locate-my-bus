@@ -48,7 +48,8 @@ inline string generate_uuid_v4() {
 }
 
 stringstream downloadFile(
-	string url_path
+	string url_path,
+	string api_key_for_header
 ){
 
 	CURL* curl;
@@ -60,6 +61,12 @@ stringstream downloadFile(
 	
 	if(curl){
 		
+		if(!api_key_for_header.empty()){
+			struct curl_slist* headers = nullptr;
+			headers = curl_slist_append(headers, ("apikey: " + api_key_for_header).c_str());
+			curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+		}
+
 		curl_easy_setopt(curl, CURLOPT_URL, url_path.c_str());
 		curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_data);
 		curl_easy_setopt(curl, CURLOPT_WRITEDATA, &result);
@@ -114,27 +121,40 @@ int mainLogic(int argc, char* args[], pqxx::connection* conn){
 
 	cout << "Program start time: " << startTime << endl;
 
-	vector<pair<string, string>> agencies; // <uuid, rt_feed_url>
+	vector<pair<string, pair<string,string>>> agencies; // <uuid, rt_feed_url>
 
     {
         pqxx::nontransaction ntxn(*conn);
         auto result = ntxn.exec("SELECT * FROM public.agency");
         for (const auto& row : result) {
+			pair<string, string> url_and_api_pair = 
+				make_pair(
+					row["rt_feed_url"].as<string>(), 
+					row["api_key_in_header"].as<string>("")
+				);
+
             agencies.emplace_back(
                 row["id"].as<string>(),
-                row["rt_feed_url"].as<string>()
+                url_and_api_pair
             );
         }
     } // ntxn destroyed here, conn is clean
 
-    for (const auto& [uuid, rt_feed_url] : agencies) {
+    for (const auto& [uuid, rt_feed_url_and_api_pair] : agencies) {
+		string rt_feed_url = rt_feed_url_and_api_pair.first;
+		string api_key = rt_feed_url_and_api_pair.second;
+
 		stringstream ss;
 
+		cout << rt_feed_url << " -> " << api_key  << endl;
 		if (isFileProvidedAlredy(args)) {
 		ifstream file(getValueFromTag(args, "-f"), ios::in | ios::binary);
 		ss << file.rdbuf();
 		} else {
-		ss = downloadFile(!rt_feed_url.empty() ? rt_feed_url : throw invalid_argument("rt_feed_url can not be null"));
+		ss = downloadFile(
+			!rt_feed_url.empty() ? rt_feed_url : throw invalid_argument("rt_feed_url can not be null"),
+			api_key // empty handled in the method;
+		);
 		}
 
 		FeedMessage feed;
@@ -148,8 +168,7 @@ int mainLogic(int argc, char* args[], pqxx::connection* conn){
 			// Start a transaction
 			pqxx::work txn(*conn);
 
-
-			string insertQ = "INSERT INTO public.live_vehicle_position(id, agency_id, route_id, route_short_name, lon, lat, vehicle_id, \"timestamp\", vehicle_distance_traveled, speed) VALUES ";
+			string insertQ = "INSERT INTO public.live_vehicle_position(id, agency_id, route_id, route_short_name, lon, lat, vehicle_id, \"timestamp\", vehicle_distance_traveled, speed, head_bearing) VALUES ";
 			string insertV = "";
 
 			map<string, FeedEntity> vehicles;
@@ -179,6 +198,7 @@ int mainLogic(int argc, char* args[], pqxx::connection* conn){
 					string vehicle_id = entity.vehicle().vehicle().id();
 					string odometry = to_string(entity.vehicle().position().odometer());
 					string speed = to_string(entity.vehicle().position().speed());
+					string bearing = to_string(entity.vehicle().position().bearing());
 
 					// filter out such records, where the routes are not in the db
 					if (route_id.empty() || busRoutesInThisAgency.find(route_id) == busRoutesInThisAgency.end())
@@ -194,7 +214,8 @@ int mainLogic(int argc, char* args[], pqxx::connection* conn){
 						+ "'" + vehicle_id + "',"
 						+ "TO_TIMESTAMP(" + to_string(ts) + "),"
 						+ odometry + ","
-						+ speed + ")";
+						+ speed + ","
+						+ bearing + ")";
 				}
 			}
 

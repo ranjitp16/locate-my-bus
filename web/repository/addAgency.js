@@ -1,4 +1,4 @@
-const handleWriteFromAgency = async (client, fileName, tableName, decompressed, rt_feed_url, static_feed_url) => {
+const handleWriteFromAgency = async (client, fileName, tableName, decompressed, rt_feed_url, static_feed_url, api_key) => {
 
     const file = decompressed.files.find(f => f.path === fileName);
     const content = await file.buffer();
@@ -15,8 +15,8 @@ const handleWriteFromAgency = async (client, fileName, tableName, decompressed, 
         'SELECT column_name FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2',
         ['public', tableName]
     );
-    const sanitized_table_headers_no_id = rows.filter(r => r.column_name !== 'rt_feed_url' && r.column_name !== 'static_feed_url');
-    const sanitized_table_headers = rows.filter(r => r.column_name !== 'id' && r.column_name !== 'rt_feed_url' && r.column_name !== 'static_feed_url');
+    const sanitized_table_headers_no_id = rows.filter(r => r.column_name !== 'rt_feed_url' && r.column_name !== 'static_feed_url' && r.column_name !== 'api_key_in_header');
+    const sanitized_table_headers = rows.filter(r => r.column_name !== 'id' && r.column_name !== 'rt_feed_url' && r.column_name !== 'static_feed_url' && r.column_name !== 'api_key_in_header');
 
     // Validate that the feed contains all required columns (except id, rt_feed_url, static_feed_url)
     sanitized_table_headers.forEach(h => {
@@ -31,7 +31,7 @@ const handleWriteFromAgency = async (client, fileName, tableName, decompressed, 
     for (const line of lines) {
         const values = line.split(',').map(v => v.trim());
 
-        const columns = [...header.map(h => h.replace(`${tableName}_`, '')).filter(h => sanitized_table_headers_no_id.some(sh => sh.column_name === h)), 'rt_feed_url', 'static_feed_url'];
+        const columns = [...header.map(h => h.replace(`${tableName}_`, '')).filter(h => sanitized_table_headers_no_id.some(sh => sh.column_name === h)), 'rt_feed_url', 'static_feed_url', 'api_key_in_header'];
         const uuid = crypto.randomUUID()
         const params = [uuid];
 
@@ -46,7 +46,7 @@ const handleWriteFromAgency = async (client, fileName, tableName, decompressed, 
             }
         });
 
-        params.push(rt_feed_url, static_feed_url);
+        params.push(rt_feed_url, static_feed_url, api_key || null);
 
         const placeholders = params.map((_, i) => `$${i + 1}`).join(',');
         await client.query(
