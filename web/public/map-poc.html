@@ -416,5 +416,28 @@
         startPolling();
     });
 </script>
+
+<!-- Buy Me a Coffee Banner -->
+<div id="bmc-banner" class="hidden">
+    <img id="bmc-banner-icon" src="https://cdn.buymeacoffee.com/assets/img/brand-assets/bmc-brand-icon.svg" alt="Buy Me a Coffee">
+    <div id="bmc-banner-text">
+        If this app has been useful to you and you'd like to support what I do, feel free to buy me a coffee....&nbsp;or don't,&nbsp; it's free to use anyway. Cheers!
+        <br>
+        <a href="https://buymeacoffee.com/ranjitp16" target="_blank" rel="noopener noreferrer">☕ Buy me a coffee</a>
+    </div>
+    <button id="bmc-banner-close" aria-label="Close banner">✕</button>
+</div>
+<script>
+    (function () {
+        var banner = document.getElementById('bmc-banner');
+        var closeBtn = document.getElementById('bmc-banner-close');
+        if (localStorage.getItem('bmc-banner-dismissed')) return;
+        banner.classList.remove('hidden');
+        closeBtn.addEventListener('click', function () {
+            banner.classList.add('hidden');
+            localStorage.setItem('bmc-banner-dismissed', '1');
+        });
+    })();
+</script>
 </body>
 </html>
