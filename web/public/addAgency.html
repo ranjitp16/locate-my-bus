@@ -80,17 +80,23 @@
                 <div class="row g-3">
                     <div class="col-md-6">
                         <label for="rt_feed_url" class="form-label">
-                            Realtime Feed URL <span class="text-danger">*</span>
+                            Realtime Feed URL <span class="text-danger" data-bs-toggle="tooltip" title="Required. Add the URL for the realtime GTFS feed.">*</span>
                         </label>
                         <input type="url" class="form-control" id="rt_feed_url" name="rt_feed_url" maxlength="1000" required>
                     </div>
                     <div class="col-md-6">
                         <label for="static_feed_url" class="form-label">
-                            Static Feed URL <span class="text-danger">*</span>
+                            Static Feed URL <span class="text-danger"  data-bs-toggle="tooltip" title="Required. Add the URL for the static GTFS feed.">*</span>
                         </label>
                         <input type="url" class="form-control" id="static_feed_url" name="static_feed_url" maxlength="1000" required>
                     </div>
-                    <div class="col-12 pt-1 d-flex justify-content-end">
+                    <div class="col-md-6 pt-1">
+                        <label for="api_key" class="form-label">
+                            API key <span class="text-info" data-bs-toggle="tooltip" title="Optional. Add this if your agency requires an API key in the headers.">?</span>
+                        </label>
+                        <input type="text" class="form-control" id="api_key" name="api_key" maxlength="1000">
+                    </div>
+                    <div class="col-md-6 pt-1 d-flex justify-content-end">
                         <button type="submit" class="btn btn-primary px-4">Add Agency</button>
                     </div>
                 </div>
@@ -373,5 +379,6 @@
 
     loadAgencies();
 </script>
+<!-- Cloudflare Web Analytics --><script defer src='https://static.cloudflareinsights.com/beacon.min.js' data-cf-beacon='{"token": "0c70f987d14c4ae0987fb02cd4cf302f"}'></script><!-- End Cloudflare Web Analytics -->
 </body>
 </html>

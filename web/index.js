@@ -17,9 +17,24 @@ app.use(helmet({
     contentSecurityPolicy: {
         directives: {
             defaultSrc: ["'self'"],
-            scriptSrc: ["'self'", "https://cdn.jsdelivr.net", "'unsafe-inline'", "https://www.googletagmanager.com"],
-            styleSrc: ["'self'", "https://cdn.jsdelivr.net", "https://cdnjs.cloudflare.com", "'unsafe-inline'"],
-            fontSrc: ["'self'", "https://cdn.jsdelivr.net", "https://cdnjs.cloudflare.com"],
+            scriptSrc: [
+                "'self'",
+                "https://cdn.jsdelivr.net",
+                "'unsafe-inline'",
+                "https://www.googletagmanager.com",
+                "https://static.cloudflareinsights.com"
+            ],
+            styleSrc: [
+                "'self'",
+                "https://cdn.jsdelivr.net",
+                "https://cdnjs.cloudflare.com",
+                "'unsafe-inline'"
+            ],
+            fontSrc: [
+                "'self'",
+                "https://cdn.jsdelivr.net",
+                "https://cdnjs.cloudflare.com"
+            ],
             imgSrc: [
                 "'self'",
                 "data:",
@@ -28,14 +43,14 @@ app.use(helmet({
                 "https://tiles.stadiamaps.com",
                 "https://www.google-analytics.com",
                 "https://*.google-analytics.com",
-             ],
-             connectSrc: [
-                 "'self'",
-                 "https://cdn.jsdelivr.net",
-                 "https://www.googletagmanager.com",
-                 "https://www.google-analytics.com",
-                 "https://*.google-analytics.com",
-                ]
+            ],
+            connectSrc: [
+                "'self'",
+                "https://cdn.jsdelivr.net",
+                "https://www.googletagmanager.com",
+                "https://www.google-analytics.com",
+                "https://*.google-analytics.com",
+            ]
         },
     },
 }))
@@ -91,7 +106,7 @@ app.get('/api/agencies', async (req, res) => {
     }
 }).post('/api/agencies/add', authMiddleware, async (req, res) => {
     try {
-        const { name, url, timezone, language, phone, fare_url, rt_feed_url, static_feed_url } = req.body;
+        const { api_key, rt_feed_url, static_feed_url } = req.body;
 
         if (!static_feed_url) {
             return res.status(400).json({ error: 'static_feed_url is required.' });
@@ -101,7 +116,7 @@ app.get('/api/agencies', async (req, res) => {
             return res.status(400).json({ error: 'rt_feed_url is required.' });
         }
 
-        await onBoardAgency(rt_feed_url, static_feed_url);
+        await onBoardAgency(rt_feed_url, static_feed_url, api_key);
 
         res.sendStatus(201);
     } catch (err) {
