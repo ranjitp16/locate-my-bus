@@ -11,6 +11,11 @@
     --danger:       #dc2626;
     --danger-hover: #b91c1c;
     --badge-bg:     #e5e7eb;
+    /* ── Buy Me a Coffee brand colors (intentionally theme-invariant) ── */
+    --bmc-yellow:       #FFDD00;
+    --bmc-black:        #000000;
+    --bmc-black-hover:  #333333;
+    --bmc-white:        #ffffff;
 }
 
 /* ── Dark tokens (OS preference) ── */
@@ -254,52 +259,56 @@ h1, h2, h3, h4, h5, h6 { color: var(--text); }
 }
 .modal-backdrop { background: rgba(0,0,0,0.6); }
 
-/* ── Buy Me a Coffee banner ── */
+/* ── Buy Me a Coffee banner (always light) ── */
 #bmc-banner {
     position: fixed;
     bottom: 0;
     left: 0;
     right: 0;
     z-index: 1200;
-    background: #FFDD00;
-    color: #000000;
+    background: #ffffff;
+    color: #1a1a2e;
+    border-top: 1px solid #d0d5dd;
     display: flex;
     align-items: center;
     gap: 12px;
     padding: 12px 20px;
     font-size: 0.85rem;
     line-height: 1.4;
-    box-shadow: 0 -2px 8px rgba(0,0,0,0.15);
+    box-shadow: 0 -2px 8px rgba(0,0,0,0.12);
 }
 #bmc-banner.hidden { display: none; }
 #bmc-banner-icon {
     flex-shrink: 0;
-    width: 36px;
-    height: 36px;
+    width: auto;
+    height: 32px;
+    display: block;
+    align-self: center;
 }
 #bmc-banner-text {
     flex: 1;
     font-family: inherit;
 }
-#bmc-banner-text a {
-    display: inline-block;
-    margin-top: 6px;
-    background: #000000;
-    color: #FFDD00;
+#bmc-banner-link {
+    flex-shrink: 0;
+    background: var(--bmc-black);
+    color: var(--bmc-white);
     text-decoration: none;
-    padding: 4px 14px;
+    padding: 6px 14px;
     border-radius: 4px;
     font-size: 0.8rem;
     font-weight: 700;
+    white-space: nowrap;
 }
-#bmc-banner-text a:hover {
-    background: #333333;
+#bmc-banner-link:hover {
+    background: var(--bmc-black-hover);
+    color: var(--bmc-white);
 }
 #bmc-banner-close {
     flex-shrink: 0;
     background: none;
     border: none;
-    color: #000000;
+    color: #6b7280;
     font-size: 1.2rem;
     cursor: pointer;
     padding: 4px 8px;
@@ -311,16 +320,30 @@ h1, h2, h3, h4, h5, h6 { color: var(--text); }
 @media (max-width: 480px) {
     #bmc-banner {
         flex-wrap: wrap;
-        gap: 8px;
+        align-items: center;
+        gap: 6px 10px;
         padding: 10px 14px;
         font-size: 0.78rem;
     }
     #bmc-banner-icon {
-        width: 28px;
-        height: 28px;
+        height: 22px;
+        order: 1;
     }
-    #bmc-banner-text a {
-        font-size: 0.75rem;
-        padding: 4px 10px;
+    #bmc-banner-text {
+        flex: 1;
+        min-width: 0;
+        font-size: 0.76rem;
+        order: 2;
+    }
+    #bmc-banner-close {
+        order: 3;
+    }
+    #bmc-banner-link {
+        order: 4;
+        width: 100%;
+        text-align: center;
+        padding: 8px 14px;
+        font-size: 0.8rem;
+        box-sizing: border-box;
     }
 }
