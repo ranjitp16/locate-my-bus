@@ -162,6 +162,32 @@
         }
         footer a:hover { color: var(--accent); }
 
+        /* ── Sponsor ── */
+        .sponsor {
+            text-align: center;
+            padding: 0 24px 64px;
+        }
+
+        .sponsor h2 {
+            font-size: 1.15rem;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+
+        .sponsor p {
+            color: var(--text-muted);
+            font-size: 0.88rem;
+            margin-bottom: 20px;
+        }
+
+        .sponsor a img {
+            height: 42px;
+            border-radius: 6px;
+            transition: opacity 0.2s;
+        }
+
+        .sponsor a:hover img { opacity: 0.85; }
+
         @media (max-width: 480px) {
             .hero h1 { font-size: 1.75rem; }
             footer { justify-content: center; text-align: center; }
@@ -202,6 +228,14 @@
         <p>Tap a bus to pin it. The map keeps it centred as it moves so you never lose track.</p>
     </div>
 </div>
+
+<section class="sponsor">
+    <h2>☕ Sponsor this project</h2>
+    <p>If Locate My Bus is useful to you, consider buying me a coffee!</p>
+    <a href="https://www.buymeacoffee.com/ranjitp16" target="_blank" rel="noopener noreferrer">
+        <img src="https://img.buymeacoffee.com/button-api/?text=Buy me a coffee&emoji=&slug=ranjitp16&button_colour=FFDD00&font_colour=000000&font_family=Cookie&outline_colour=000000&coffee_colour=ffffff" alt="Support this project by buying me a coffee">
+    </a>
+</section>
 
 <footer>
     <span>Built by <a href="https://ranjitpandey.dev">Ranjit Pandey</a></span>

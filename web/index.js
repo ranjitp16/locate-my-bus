@@ -28,6 +28,7 @@ app.use(helmet({
                 "https://tiles.stadiamaps.com",
                 "https://www.google-analytics.com",
                 "https://*.google-analytics.com",
+                "https://img.buymeacoffee.com",
              ],
              connectSrc: [
                  "'self'",
