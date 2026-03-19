@@ -98,81 +98,79 @@ stringstream downloadFile(
 	return result;
 }
 
-string getValueFromTag(char* args[], string tag){
 
- 	for(int i = 0; args[i] != nullptr; i++){
-		if(strcmp(args[i], tag.c_str()) == 0){
-			if(args[i+1] != nullptr) return args[i+1];
-			cerr<<"Argument expected after "<< tag << endl;
-			throw invalid_argument("Argument expected after " + tag);
-		}
-	}
-	return ""; 
-}
-
-bool isFileProvidedAlredy(char* args[]){
-	return !getValueFromTag(args, "-f").empty();
-}
 
 int mainLogic(int argc, char* args[], pqxx::connection* conn){
-	auto startTime = chrono::duration_cast<chrono::microseconds>(
-      chrono::system_clock::now().time_since_epoch()
-  	).count();
 
-	cout << "Program start time: " << startTime << endl;
+	vector<pair<string, pair<string,string>>> agencies; // <uuid, <rt_feed_url, api_key>>
+	try
+	{
+		// try fetching agencies from database
+		{
+			pqxx::nontransaction ntxn(*conn);
+			auto result = ntxn.exec("SELECT * FROM public.agency ORDER BY rt_feed_url");
+			for (const auto& row : result) {
+				pair<string, string> url_and_api_pair = 
+					make_pair(
+						row["rt_feed_url"].as<string>(), 
+						row["api_key_in_header"].as<string>("")
+					);
 
-	vector<pair<string, pair<string,string>>> agencies; // <uuid, rt_feed_url>
-
-    {
-        pqxx::nontransaction ntxn(*conn);
-        auto result = ntxn.exec("SELECT * FROM public.agency");
-        for (const auto& row : result) {
-			pair<string, string> url_and_api_pair = 
-				make_pair(
-					row["rt_feed_url"].as<string>(), 
-					row["api_key_in_header"].as<string>("")
+				agencies.emplace_back(
+					row["id"].as<string>(),
+					url_and_api_pair
 				);
+			}
+		} // ntxn destroyed here, conn is clean
+		cout << "Fetched " << agencies.size() << " " << "agencies from the database, initiating fetch-n-parse" << endl;
+	}
+	catch(const std::exception& e)
+	{
+		std::cerr << e.what() << '\n';
+	}
+	
 
-            agencies.emplace_back(
-                row["id"].as<string>(),
-                url_and_api_pair
-            );
-        }
-    } // ntxn destroyed here, conn is clean
+	// Add an identifier to see if the we can re-use the already existing stream, as many angencies share the rt_feed.
+	stringstream ss;
+	FeedMessage feed;
+	string last_rt_feed_url = "";
+	string last_agency = "";
 
-    for (const auto& [uuid, rt_feed_url_and_api_pair] : agencies) {
+	// itterate over agencies and fetch rt feed to parse and upserts the feed
+    for (const auto& [agency_id, rt_feed_url_and_api_pair] : agencies) {
+		auto startTime = chrono::duration_cast<chrono::microseconds>(
+			chrono::system_clock::now().time_since_epoch()
+		).count();
+		
 		string rt_feed_url = rt_feed_url_and_api_pair.first;
 		string api_key = rt_feed_url_and_api_pair.second;
-
-		stringstream ss;
-
-		cout << "rt_feed: " << rt_feed_url << ", api_key(if any): " << api_key  << endl;
-		if (isFileProvidedAlredy(args)) {
-		ifstream file(getValueFromTag(args, "-f"), ios::in | ios::binary);
-		ss << file.rdbuf();
-		} else {
-		ss = downloadFile(
-			!rt_feed_url.empty() ? rt_feed_url : throw invalid_argument("rt_feed_url can not be null"),
-			api_key // empty handled in the method;
-		);
-		}
-
-		FeedMessage feed;
-		if (!feed.ParseFromIstream(&ss)) {
-				cerr << "Failed to parse feed message." << endl;
-				return 1;
-		}
-
+		
+		cout << "Program start time: " << startTime << " rt_feed: " << rt_feed_url << ", api_key(if any): " << api_key  << endl;
+		
+		
 		try {
 			
-			// Start a transaction
-			pqxx::work txn(*conn);
-
+			if(rt_feed_url != last_rt_feed_url){
+				cout << "fetching : " << rt_feed_url<<endl; 
+				last_rt_feed_url = rt_feed_url;
+				last_agency = agency_id;
+				ss = downloadFile(
+					!rt_feed_url.empty() ? rt_feed_url : throw invalid_argument("rt_feed_url can not be null"),
+					api_key // empty handled in the method;
+				);
+				if (!feed.ParseFromIstream(&ss)) {
+					throw runtime_error("Failed to parse feed message.");
+				}
+			}
+			else {
+				cout << "Re-using feed from : " << last_agency << endl;
+			}
+			
 			string insertQ = "INSERT INTO public.live_vehicle_position(id, agency_id, route_id, route_short_name, lon, lat, vehicle_id, \"timestamp\", vehicle_distance_traveled, speed, head_bearing) VALUES ";
 			string insertV = "";
-
+			
 			map<string, FeedEntity> vehicles;
-
+			
 			for (int i = 0; i < feed.entity_size(); i++) {
 				FeedEntity entity = feed.entity(i);
 				if (entity.has_vehicle()) {
@@ -181,7 +179,11 @@ int mainLogic(int argc, char* args[], pqxx::connection* conn){
 				}
 			}
 			unordered_set<string> busRoutesInThisAgency;
-			auto busRoutes = txn.exec_params("SELECT id FROM public.route WHERE agency_id = $1", uuid);
+			
+			// Start a transaction
+			pqxx::work txn(*conn);
+			
+			auto busRoutes = txn.exec_params("SELECT id FROM public.route WHERE agency_id = $1", agency_id);
 
 			for (const auto& row : busRoutes) {
 				busRoutesInThisAgency.emplace(row["id"].as<string>());
@@ -200,13 +202,17 @@ int mainLogic(int argc, char* args[], pqxx::connection* conn){
 					string speed = to_string(entity.vehicle().position().speed());
 					string bearing = to_string(entity.vehicle().position().bearing());
 
+					if(agency_id == "cca05df8-a02d-4c19-8b49-2a43fbfe7d8e"){
+						cout << "------------------------------------" << endl;
+						cout << "trip Id: " << entity.vehicle().trip().trip_id() << endl;
+					}
 					// filter out such records, where the routes are not in the db
 					if (route_id.empty() || busRoutesInThisAgency.find(route_id) == busRoutesInThisAgency.end())
 						continue;
 					if (!insertV.empty()) insertV += ", ";
 
 					insertV += "('" + generate_uuid_v4() + "',"
-						+ "'" + uuid + "',"
+						+ "'" + agency_id + "',"
 						+ "'" + route_id + "',"
 						+ "'" + route_id + "',"
 						+ lon + ","
@@ -219,24 +225,27 @@ int mainLogic(int argc, char* args[], pqxx::connection* conn){
 				}
 			}
 
-			string onConflict = ""; //"ON CONFLICT (vehicle_id) DO UPDATE SET lat = EXCLUDED.lat,lon = EXCLUDED.lon, speed = EXCLUDED.speed,\"timestamp\" = EXCLUDED.\"timestamp\", vehicle_distance_traveled = EXCLUDED.vehicle_distance_traveled";
-			txn.exec_params("DELETE FROM public.live_vehicle_position WHERE agency_id = $1", uuid);
-			pqxx::result rows = txn.exec(insertQ + insertV + onConflict +";");
-
+			if(!insertV.empty())
+			{
+				txn.exec_params("DELETE FROM public.live_vehicle_position WHERE agency_id = $1", agency_id);
+				pqxx::result rows = txn.exec(insertQ + insertV +";");
+			}
 
 			txn.commit();
-
+			
 		} catch (const exception& e) {
-			cerr << "Error: " << e.what() << "\n";
+			cerr << "Error while fetching and parsing the protobuf: " << e.what() << "\n";
 			return 1;
-		}
-
-		auto endTime = chrono::duration_cast<chrono::microseconds>(
-		chrono::system_clock::now().time_since_epoch()
-		).count();
-
-		cout << "Program End time: " << endTime << endl;
-		cout << "Time to execute " << endTime - startTime <<endl;  
+		} 
+		
+			
+			
+			auto endTime = chrono::duration_cast<chrono::microseconds>(
+			chrono::system_clock::now().time_since_epoch()
+			).count();
+	
+			cout << "Program End time: " << endTime << " | Time to execute " << endTime - startTime <<endl;  
+		
 	}
 	return 0;
 }
@@ -266,9 +275,10 @@ int main(int argc, char* args[]){
 
 	int i = 0 ;
 	while(true){
-		cout<< "itteration: " << i++ << endl;
+		cout<< "Itteration: " << i++ << endl;
 		mainLogic(argc, args, &conn);
 		this_thread::sleep_for(chrono::seconds(15));
+		cout << "========================================" << endl;
 	}
 	
 }

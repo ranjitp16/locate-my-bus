@@ -51,6 +51,7 @@ ALTER COLUMN long_name TYPE VARCHAR(200);
 
 ALTER TABLE public.live_vehicle_position
 ADD COLUMN head_bearing DOUBLE PRECISION;
+-- ADD COLUMN trip_id;
 
 -- Represents the shape as a whole (one row per shape)
 CREATE TABLE IF NOT EXISTS public.shape (
@@ -64,11 +65,11 @@ CREATE TABLE IF NOT EXISTS public.shape (
 CREATE TABLE IF NOT EXISTS public.shape_point (
     agency_id                   UUID                NOT NULL,
     shape_id                    VARCHAR(45)         NOT NULL,
-    shape_pt_lat                DOUBLE PRECISION    NOT NULL,
-    shape_pt_lon                DOUBLE PRECISION    NOT NULL,
-    shape_pt_sequence           VARCHAR(45)         NOT NULL,
-    shape_dist_traveled         DOUBLE PRECISION,
-    PRIMARY KEY (agency_id, shape_id, shape_pt_sequence),
+    pt_lat                      DOUBLE PRECISION    NOT NULL,
+    pt_lon                      DOUBLE PRECISION    NOT NULL,
+    pt_sequence                 VARCHAR(45)         NOT NULL,
+    dist_traveled               DOUBLE PRECISION,
+    PRIMARY KEY (agency_id, shape_id, pt_sequence),
     CONSTRAINT fk_shape FOREIGN KEY (agency_id, shape_id) REFERENCES public.shape (agency_id, id) ON DELETE CASCADE
 );
 
@@ -78,6 +79,9 @@ CREATE TABLE IF NOT EXISTS public.trip (
     agency_id                   UUID            NOT NULL,
     route_id                    VARCHAR(45)     NOT NULL,
     shape_id                    VARCHAR(45)     NOT NULL,
+    service_id                  VARCHAR(45)     NOT NULL,
+    trip_headsign               VARCHAR(100)    NOT NULL,
+    direction_id                VARCHAR(10)     NOT NULL,
     PRIMARY KEY (agency_id, id),
     CONSTRAINT fk_agency    FOREIGN KEY (agency_id)           REFERENCES public.agency (id)                 ON DELETE CASCADE,
     CONSTRAINT fk_route     FOREIGN KEY (agency_id, route_id) REFERENCES public.route (agency_id, id)       ON DELETE CASCADE,
