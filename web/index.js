@@ -137,9 +137,21 @@ app.get('/api/agencies', async (req, res) => {
 
 app.get('/api/shape/:agency_id/:trip_id', async (req, res) => {
 
-    const { rowsOfTrip } = await pool.query('SELECT shape_id FROM public.trip WHERE agency_id = $1 AND id = $2', [agency_id, trip_id]);
-    const { rows } = await pool.query('SELECT pt_lat, pt_lon, pt_sequence FROM public.shape_point WHERE agency_id = $1 AND id = $2 ORDER BY pt_sequence::int asc', [agency_id, rowsOfTrip['shape_id']]);
-    res.send(rows);
+    const { agency_id, trip_id } = req.params;
+
+    const { rows: tripRows } = await pool.query(
+        'SELECT shape_id, trip_headsign FROM public.trip WHERE agency_id = $1 AND id = $2',
+        [agency_id, trip_id]
+    );
+
+    if (!tripRows.length) return res.status(404).send({ error: 'Trip not found' });
+
+    const { rows } = await pool.query(
+        'SELECT pt_lat, pt_lon, pt_sequence FROM public.shape_point WHERE agency_id = $1 AND id = $2 ORDER BY pt_sequence::int ASC',
+        [agency_id, tripRows[0].shape_id]
+    );
+
+    res.send({ trip_headsign: tripRows[0].trip_headsign, rows });
 });
 
 app.listen(port, () => {

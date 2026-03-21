@@ -166,7 +166,7 @@ int mainLogic(int argc, char* args[], pqxx::connection* conn){
 				cout << "Re-using feed from : " << last_agency << endl;
 			}
 			
-			string insertQ = "INSERT INTO public.live_vehicle_position(id, agency_id, route_id, route_short_name, lon, lat, vehicle_id, \"timestamp\", vehicle_distance_traveled, speed, head_bearing) VALUES ";
+			string insertQ = "INSERT INTO public.live_vehicle_position(id, agency_id, route_id, route_short_name, lon, lat, vehicle_id, \"timestamp\", vehicle_distance_traveled, speed, head_bearing, trip_id) VALUES ";
 			string insertV = "";
 			
 			map<string, FeedEntity> vehicles;
@@ -201,11 +201,8 @@ int mainLogic(int argc, char* args[], pqxx::connection* conn){
 					string odometry = to_string(entity.vehicle().position().odometer());
 					string speed = to_string(entity.vehicle().position().speed());
 					string bearing = to_string(entity.vehicle().position().bearing());
+					string trip_id = entity.vehicle().trip().trip_id();
 
-					if(agency_id == "cca05df8-a02d-4c19-8b49-2a43fbfe7d8e"){
-						cout << "------------------------------------" << endl;
-						cout << "trip Id: " << entity.vehicle().trip().trip_id() << endl;
-					}
 					// filter out such records, where the routes are not in the db
 					if (route_id.empty() || busRoutesInThisAgency.find(route_id) == busRoutesInThisAgency.end())
 						continue;
@@ -221,7 +218,8 @@ int mainLogic(int argc, char* args[], pqxx::connection* conn){
 						+ "TO_TIMESTAMP(" + to_string(ts) + "),"
 						+ odometry + ","
 						+ speed + ","
-						+ bearing + ")";
+						+ bearing + ","
+						+ trip_id + ")";
 				}
 			}
 

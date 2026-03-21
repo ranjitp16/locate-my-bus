@@ -94,6 +94,10 @@
             padding: 0;
         }
         #details-toggle:hover { color: var(--text); }
+
+        @keyframes dash-flow {
+            to { stroke-dashoffset: -20; }
+        }
     </style>
 </head>
 <body>
@@ -173,10 +177,41 @@
     }
 
     let markers = [];
+    let ageTimer = null;
     let pollTimer = null;
     let countdownTimer = null;
     let pinnedVehicleId = null;
+    let routeLayers = [];
     const POLL_INTERVAL = 15000;
+
+    function clearRoute() {
+        routeLayers.forEach(l => l.remove());
+        routeLayers = [];
+    }
+
+    function drawRoute(agencyId, tripId) {
+        clearRoute();
+        fetch(`/api/shape/${agencyId}/${tripId}`)
+            .then(r => r.json())
+            .then(response => {
+                const points = response.rows;
+                if (!points.length) return;
+                const latlngs = points
+                    .sort((a, b) => a.pt_sequence - b.pt_sequence)
+                    .map(p => [p.pt_lat, p.pt_lon]);
+
+                const base = L.polyline(latlngs, { color: '#1558d0', weight: 4, opacity: 0.4 }).addTo(map);
+
+                const dashes = L.polyline(latlngs, { color: '#1558d0', weight: 4, opacity: 0.9, dashArray: '12 8' }).addTo(map);
+                dashes.getElement().style.animation = 'dash-flow 1.8s linear infinite';
+
+                const startDot = L.circleMarker(latlngs[0], { radius: 6, color: '#fff', weight: 2, fillColor: '#e53935', fillOpacity: 1 }).addTo(map);
+                const endDot   = L.circleMarker(latlngs[latlngs.length - 1], { radius: 6, color: '#fff', weight: 2, fillColor: '#2e7d32', fillOpacity: 1 }).addTo(map);
+
+                routeLayers.push(base, dashes, startDot, endDot);
+            })
+            .catch(err => console.error('Shape fetch failed:', err));
+    }
 
     const pollTimerEl = document.getElementById('poll-timer');
 
@@ -246,7 +281,7 @@
                     `<b>Vehicle:</b> ${escapeHtml(v.vehicle_id)}<br>` +
                     `<b>Speed:</b> ${v.speed != null ? escapeHtml(v.speed) : '—'} m/s<br>` +
                     `<b>Bearing:</b> ${v.head_bearing != null ? escapeHtml(v.head_bearing) + '°' : '—'}<br>` +
-                    `<b>Updated:</b> ${escapeHtml(age)}s ago`
+                    `<b>Updated:</b> <span class="age-counter">${age}</span>s ago`
                 );
 
             const marker = L.marker([v.lat, v.lon], { icon: makeBusIcon(v.head_bearing, isPinned) })
@@ -256,10 +291,26 @@
             marker.on('click', () => {
                 if (pinnedVehicleId === v.vehicle_id) {
                     pinnedVehicleId = null;   // unpin
+                    clearRoute();
                 } else {
                     pinnedVehicleId = v.vehicle_id;
                     map.setView([v.lat, v.lon], map.getZoom(), { animate: true });
+                    drawRoute(agencySelect.value, v.trip_id);
                 }
+            });
+
+            marker.on('popupopen', () => {
+                clearInterval(ageTimer);
+                const startTime = Date.parse(v.timestamp);
+                const ageEl = popup.getElement().querySelector('.age-counter');
+                ageTimer = setInterval(() => {
+                    ageEl.textContent = String(Math.round((Date.now() - startTime) / 1000));
+                }, 1000);
+            });
+
+            marker.on('popupclose', () => {
+                clearInterval(ageTimer);
+                ageTimer = null;
             });
 
             if (isPinned) marker.openPopup();
@@ -269,7 +320,7 @@
     }
 
     /* ── Click map background to unpin ── */
-    map.on('click', () => { pinnedVehicleId = null; });
+    map.on('click', () => { pinnedVehicleId = null; clearRoute(); });
 
     /* ── Fetch live vehicles for current selection ── */
     function fetchLive() {
@@ -289,6 +340,7 @@
         clearInterval(countdownTimer);
         hasAutocentered = false;
         pinnedVehicleId = null;
+        clearRoute();
         fetchLive();
         startCountdown();
         pollTimer = setInterval(() => { fetchLive(); startCountdown(); }, POLL_INTERVAL);

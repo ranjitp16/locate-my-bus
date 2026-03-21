@@ -1,4 +1,5 @@
 const handleWriteFromAgency = async (client, fileName, tableName, decompressed, rt_feed_url, static_feed_url, api_key) => {
+    console.log("INITIATING AGENCY WRITES: " + static_feed_url);
     var { lines, header, sanitized_table_headers_no_id } = await getFileContents(client, decompressed, fileName, tableName, tableName, static_feed_url);
     var listToReturn = [];
 
@@ -22,7 +23,6 @@ const handleWriteFromAgency = async (client, fileName, tableName, decompressed, 
         });
 
         params.push(rt_feed_url, static_feed_url, api_key || null);
-        params.push(rt_feed_url, static_feed_url, api_key || null);
 
         const placeholders = params.map((_, i) => `$${i + 1}`).join(',');
         await client.query(
@@ -31,10 +31,12 @@ const handleWriteFromAgency = async (client, fileName, tableName, decompressed, 
         );
         listToReturn.push(listToReturnEntry);
     }
+    console.log("COMPLETE AGENCY WRITES: " + static_feed_url);
     return listToReturn;
 };
 
 const handleWriteFromRoutes = async (client, fileName, tableName, decompressed, listOfAgencyGuids, static_feed_url) => {
+    console.log("INITIATING ROUTE WRITES: " + static_feed_url);
     var { lines, header, sanitized_table_headers_no_id } = await getFileContents(client, decompressed, fileName, tableName, tableName, static_feed_url);
 
     // Build a lookup map from GTFS agency_id → UUID once, before iterating rows
@@ -74,10 +76,13 @@ const handleWriteFromRoutes = async (client, fileName, tableName, decompressed, 
         responseMap.get(agency_id).push(route_id);
     };
 
+    console.log("COMPLETE ROUTE WRITES: " + static_feed_url);
     return responseMap;
 };
 
 const handleWriteFromTrip = async (client, fileName, tableName, decompressed, listOfAgencyGuids, listOfGuidFromRoute, static_feed_url) => {
+    console.log("INITIATING TRIP WRITES: " + static_feed_url);
+
     let { lines, header, sanitized_table_headers_no_id } = await getFileContentsFromTrip(client, decompressed, fileName, tableName, static_feed_url);
 
     const columns = [...header.filter(h => sanitized_table_headers_no_id.some(sh => sh.column_name === h))];
@@ -114,8 +119,11 @@ const handleWriteFromTrip = async (client, fileName, tableName, decompressed, li
             );
         }
     }
+    console.log("COMPLETE TRIP WRITES: " + static_feed_url);
+
 }
 const handleWriteFromShapes = async (client, fileName, tableName, decompressed, listOfAgencyGuids, static_feed_url) => {
+    console.log("INITIATING SHAPES WRITES: " + static_feed_url);
 
     const actualTableName = tableName;
     tableName = "shape";
@@ -157,6 +165,7 @@ const handleWriteFromShapes = async (client, fileName, tableName, decompressed, 
             );
         }
     }
+    console.log("COMPLETED SHAPES WRITES: " + static_feed_url);
 };
 
 const getFileContents = async (client, decompressed, fileName, tableName, headerSalt, static_feed_url) => {
