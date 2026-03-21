@@ -1,16 +1,15 @@
 const handleWriteFromAgency = async (client, fileName, tableName, decompressed, rt_feed_url, static_feed_url, api_key) => {
     console.log("INITIATING AGENCY WRITES: " + static_feed_url);
     var { lines, header, sanitized_table_headers_no_id } = await getFileContents(client, decompressed, fileName, tableName, tableName, static_feed_url);
-    var listToReturn = [];
 
-    // Extract values from each line and insert into the database, mapping feed columns to table columns (removing agency_ prefix) and adding rt_feed_url and static_feed_url
+    const columns = [...header.map(h => h.replace(`${tableName}_`, '')).filter(h => sanitized_table_headers_no_id.some(sh => sh.column_name === h)), 'rt_feed_url', 'static_feed_url', 'api_key_in_header'];
+    const rows = [];
+    const listToReturn = [];
+
     for (const line of lines) {
         const values = line.split(',').map(v => v.trim());
-
-        const columns = [...header.map(h => h.replace(`${tableName}_`, '')).filter(h => sanitized_table_headers_no_id.some(sh => sh.column_name === h)), 'rt_feed_url', 'static_feed_url', 'api_key_in_header'];
-        const uuid = crypto.randomUUID()
+        const uuid = crypto.randomUUID();
         const params = [uuid];
-
         let listToReturnEntry = { uuid };
 
         header.forEach((h, i) => {
@@ -23,14 +22,11 @@ const handleWriteFromAgency = async (client, fileName, tableName, decompressed, 
         });
 
         params.push(rt_feed_url, static_feed_url, api_key || null);
-
-        const placeholders = params.map((_, i) => `$${i + 1}`).join(',');
-        await client.query(
-            `INSERT INTO public.${tableName} (${columns.join(',')}) VALUES (${placeholders})`,
-            params
-        );
+        rows.push(params);
         listToReturn.push(listToReturnEntry);
     }
+
+    if (rows.length > 0) await bulkInsert(client, tableName, columns, rows);
     console.log("COMPLETE AGENCY WRITES: " + static_feed_url);
     return listToReturn;
 };
@@ -45,8 +41,8 @@ const handleWriteFromRoutes = async (client, fileName, tableName, decompressed, 
     const columns = [...header.map(h => h.replace(`${tableName}_`, '')).filter(h => sanitized_table_headers_no_id.some(sh => sh.column_name === h))];
 
     var responseMap = new Map();
+    const rows = [];
 
-    // Extract values from each line and insert into the database, mapping feed columns to table columns (removing route_ prefix) and adding rt_feed_url and static_feed_url
     for (const line of lines) {
         const values = line.split(',').map(v => v.trim());
 
@@ -65,16 +61,13 @@ const handleWriteFromRoutes = async (client, fileName, tableName, decompressed, 
                 if (`${tableName}_id` === h) route_id = values[i] || null;
             }
         });
-        const placeholders = params.map((_, i) => `$${i + 1}`).join(',');
 
-        await client.query(
-            `INSERT INTO public.${tableName} (${columns.join(',')}) VALUES (${placeholders})`,
-            params
-        );
-
+        rows.push(params);
         if (!responseMap.has(agency_id)) responseMap.set(agency_id, []);
         responseMap.get(agency_id).push(route_id);
-    };
+    }
+
+    if (rows.length > 0) await bulkInsert(client, tableName, columns, rows);
 
     console.log("COMPLETE ROUTE WRITES: " + static_feed_url);
     return responseMap;
