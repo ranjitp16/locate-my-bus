@@ -8,6 +8,7 @@ const pool = new Pool({
 });
 
 const onBoardAgency = async (rt_feed_url, static_feed_url, api_key) => {
+const onBoardAgency = async (rt_feed_url, static_feed_url, api_key) => {
     // Download and parse the GTFS feed from static_feed_url as a stream, then extract agency.txt and insert its contents into the database
     // TODO: Handle where content.length is not provided by the server
     const decompressed = await unzip.Open.url(
