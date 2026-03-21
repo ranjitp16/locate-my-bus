@@ -7,7 +7,6 @@ const handleWriteFromAgency = async (client, fileName, tableName, decompressed, 
         const values = line.split(',').map(v => v.trim());
 
         const columns = [...header.map(h => h.replace(`${tableName}_`, '')).filter(h => sanitized_table_headers_no_id.some(sh => sh.column_name === h)), 'rt_feed_url', 'static_feed_url', 'api_key_in_header'];
-        const columns = [...header.map(h => h.replace(`${tableName}_`, '')).filter(h => sanitized_table_headers_no_id.some(sh => sh.column_name === h)), 'rt_feed_url', 'static_feed_url', 'api_key_in_header'];
         const uuid = crypto.randomUUID()
         const params = [uuid];
 

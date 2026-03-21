@@ -135,6 +135,13 @@ app.get('/api/agencies', async (req, res) => {
     }
 });
 
+app.get('/api/shape/:agency_id/:trip_id', async (req, res) => {
+
+    const { rowsOfTrip } = await pool.query('SELECT shape_id FROM public.trip WHERE agency_id = $1 AND id = $2', [agency_id, trip_id]);
+    const { rows } = await pool.query('SELECT pt_lat, pt_lon, pt_sequence FROM public.shape_point WHERE agency_id = $1 AND id = $2 ORDER BY pt_sequence::int asc', [agency_id, rowsOfTrip['shape_id']]);
+    res.send(rows);
+});
+
 app.listen(port, () => {
     console.log(`Example app listening on port ${port}`)
 })

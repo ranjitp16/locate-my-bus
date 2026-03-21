@@ -97,7 +97,7 @@
                         <input type="text" class="form-control" id="api_key" name="api_key" maxlength="1000">
                     </div>
                     <div class="col-md-6 pt-1 d-flex justify-content-end">
-                        <button type="submit" class="btn btn-primary px-4">Add Agency</button>
+                        <button type="submit" id="add-submit-btn" class="btn btn-primary px-4">Add Agency</button>
                     </div>
                 </div>
             </form>
@@ -295,7 +295,18 @@
         _pendingFormData = null;
 
         const key = document.getElementById('add-access-key').value;
+        const submitBtn = document.getElementById('add-submit-btn');
+
         addModal.hide();
+
+        submitBtn.disabled = true;
+        submitBtn.textContent = '';
+        const spinner = document.createElement('span');
+        spinner.className = 'spinner-border spinner-border-sm me-1';
+        spinner.setAttribute('role', 'status');
+        spinner.setAttribute('aria-hidden', 'true');
+        submitBtn.appendChild(spinner);
+        submitBtn.appendChild(document.createTextNode('Adding…'));
 
         fetch('/api/agencies/add', {
             method: 'POST',
@@ -314,7 +325,11 @@
                     return r.json().then(t => { throw new Error(t.error || `Server error ${r.status}`); });
                 }
             })
-            .catch(err => showBanner(`Failed to add agency: ${err.message}`));
+            .catch(err => showBanner(`Failed to add agency: ${err.message}`))
+            .finally(() => {
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Add Agency';
+            });
     });
 
     /* ── Delete agency — event delegation, no inline onclick ── */
