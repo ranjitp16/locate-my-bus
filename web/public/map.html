@@ -118,6 +118,10 @@
         <select id="route-select" disabled>
             <option value="">Select agency first</option>
         </select>
+        <label style="font-size:0.8rem;color:var(--text);display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none;">
+            <input type="checkbox" id="running-only" checked>
+            Running routes only
+        </label>
         <div id="poll-timer" style="font-size:0.72rem;color:var(--text);opacity:0.65;text-align:right;">polling in: —</div>
         <button id="details-toggle">▸ Agency details</button>
         <div id="agency-details">
@@ -343,15 +347,20 @@
         clearRoute();
         fetchLive();
         startCountdown();
-        pollTimer = setInterval(() => { fetchLive(); startCountdown(); }, POLL_INTERVAL);
+        pollTimer = setInterval(() => {
+            fetchLive();
+            if (document.getElementById('running-only').checked) refreshRouteList(agencySelect.value);
+            startCountdown();
+        }, POLL_INTERVAL);
     }
 
     /* ── Populate route select for a given agency ── */
     function loadRoutes(agencyId, restoreRoute = false) {
+        const runningOnly = document.getElementById('running-only').checked;
         routeSelect.disabled = true;
         routeSelect.innerHTML = '<option value="">Loading routes…</option>';
 
-        fetch(`/routes/${agencyId}`)
+        fetch(`/routes/${agencyId}/${runningOnly ? '1' : '0'}`)
             .then(r => r.json())
             .then(routes => {
                 routeSelect.innerHTML = '';
@@ -371,6 +380,27 @@
                 console.error('Routes fetch failed:', err);
                 routeSelect.innerHTML = '<option value="">Failed to load routes</option>';
             });
+    }
+
+    /* ── Refresh route list during polling (preserves selection) ── */
+    function refreshRouteList(agencyId) {
+        const prevValue = routeSelect.value;
+        fetch(`/routes/${agencyId}/1`)
+            .then(r => r.json())
+            .then(routes => {
+                routeSelect.innerHTML = '';
+                routes.forEach(r => {
+                    const opt = document.createElement('option');
+                    opt.value = r.id;
+                    opt.textContent = r.long_name
+                        ? `${r.id} — ${r.long_name}`
+                        : (r.id);
+                    if (r.id === prevValue) opt.selected = true;
+                    routeSelect.appendChild(opt);
+                });
+                routeSelect.disabled = false;
+            })
+            .catch(err => console.error('Routes refresh failed:', err));
     }
 
     /* ── Agency details panel ── */
@@ -467,6 +497,9 @@
     routeSelect.addEventListener('change', () => {
         localStorage.setItem('selected-route', routeSelect.value);
         startPolling();
+    });
+    document.getElementById('running-only').addEventListener('change', () => {
+        loadRoutes(agencySelect.value, /* restoreRoute */ false);
     });
 </script>
 
