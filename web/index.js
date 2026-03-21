@@ -17,9 +17,24 @@ app.use(helmet({
     contentSecurityPolicy: {
         directives: {
             defaultSrc: ["'self'"],
-            scriptSrc: ["'self'", "https://cdn.jsdelivr.net", "'unsafe-inline'", "https://www.googletagmanager.com"],
-            styleSrc: ["'self'", "https://cdn.jsdelivr.net", "https://cdnjs.cloudflare.com", "'unsafe-inline'"],
-            fontSrc: ["'self'", "https://cdn.jsdelivr.net", "https://cdnjs.cloudflare.com"],
+            scriptSrc: [
+                "'self'",
+                "https://cdn.jsdelivr.net",
+                "'unsafe-inline'",
+                "https://www.googletagmanager.com",
+                "https://static.cloudflareinsights.com"
+            ],
+            styleSrc: [
+                "'self'",
+                "https://cdn.jsdelivr.net",
+                "https://cdnjs.cloudflare.com",
+                "'unsafe-inline'"
+            ],
+            fontSrc: [
+                "'self'",
+                "https://cdn.jsdelivr.net",
+                "https://cdnjs.cloudflare.com"
+            ],
             imgSrc: [
                 "'self'",
                 "data:",
@@ -28,14 +43,16 @@ app.use(helmet({
                 "https://tiles.stadiamaps.com",
                 "https://www.google-analytics.com",
                 "https://*.google-analytics.com",
-             ],
-             connectSrc: [
-                 "'self'",
-                 "https://cdn.jsdelivr.net",
-                 "https://www.googletagmanager.com",
-                 "https://www.google-analytics.com",
-                 "https://*.google-analytics.com",
-                ]
+            ],
+            connectSrc: [
+                "'self'",
+                "https://cdn.jsdelivr.net",
+                "https://www.googletagmanager.com",
+                "https://www.google-analytics.com",
+                "https://*.google-analytics.com",
+                "https://cloudflareinsights.com",
+                "https://*.cloudflareinsights.com",
+            ]
         },
     },
 }))
@@ -91,7 +108,7 @@ app.get('/api/agencies', async (req, res) => {
     }
 }).post('/api/agencies/add', authMiddleware, async (req, res) => {
     try {
-        const { name, url, timezone, language, phone, fare_url, rt_feed_url, static_feed_url } = req.body;
+        const { api_key, rt_feed_url, static_feed_url } = req.body;
 
         if (!static_feed_url) {
             return res.status(400).json({ error: 'static_feed_url is required.' });
@@ -101,7 +118,7 @@ app.get('/api/agencies', async (req, res) => {
             return res.status(400).json({ error: 'rt_feed_url is required.' });
         }
 
-        await onBoardAgency(rt_feed_url, static_feed_url);
+        await onBoardAgency(rt_feed_url, static_feed_url, api_key);
 
         res.sendStatus(201);
     } catch (err) {
@@ -118,6 +135,25 @@ app.get('/api/agencies', async (req, res) => {
         console.error(err);
         res.status(500).json({ error: err.message || 'Failed to delete agency.' });
     }
+});
+
+app.get('/api/shape/:agency_id/:trip_id', async (req, res) => {
+
+    const { agency_id, trip_id } = req.params;
+
+    const { rows: tripRows } = await pool.query(
+        'SELECT shape_id, trip_headsign FROM public.trip WHERE agency_id = $1 AND id = $2',
+        [agency_id, trip_id]
+    );
+
+    if (!tripRows.length) return res.status(404).send({ error: 'Trip not found' });
+
+    const { rows } = await pool.query(
+        'SELECT pt_lat, pt_lon, pt_sequence FROM public.shape_point WHERE agency_id = $1 AND id = $2 ORDER BY pt_sequence::int ASC',
+        [agency_id, tripRows[0].shape_id]
+    );
+
+    res.send({ trip_headsign: tripRows[0].trip_headsign, rows });
 });
 
 app.listen(port, () => {
