@@ -167,7 +167,7 @@
         // Icon faces LEFT (west = 90° aka -90°), so add 90° to align with bearing
         const deg    = (head_bearing != null && Number.isFinite(head_bearing)) ? head_bearing + 90 : 0;
         return L.divIcon({
-            html: `<div style="transform:rotate(${deg}deg);transform-origin:center;font-size:24px;'}">
+            html: `<div style="transform:rotate(${deg}deg);transform-origin:center;font-size:24px;">
                     🚌
                 </div>`,
             className: '',
