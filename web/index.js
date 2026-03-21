@@ -50,6 +50,8 @@ app.use(helmet({
                 "https://www.googletagmanager.com",
                 "https://www.google-analytics.com",
                 "https://*.google-analytics.com",
+                "https://cloudflareinsights.com",
+                "https://*.cloudflareinsights.com",
             ]
         },
     },
