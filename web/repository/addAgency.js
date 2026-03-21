@@ -80,6 +80,22 @@ const handleWriteFromRoutes = async (client, fileName, tableName, decompressed, 
     return responseMap;
 };
 
+const BATCH_SIZE = 5000;
+
+const bulkInsert = async (client, tableName, columns, rows) => {
+    const numCols = columns.length;
+    for (let i = 0; i < rows.length; i += BATCH_SIZE) {
+        const batch = rows.slice(i, i + BATCH_SIZE);
+        const placeholders = batch.map((_, rowIdx) =>
+            `(${columns.map((_, colIdx) => `$${rowIdx * numCols + colIdx + 1}`).join(',')})`
+        ).join(', ');
+        await client.query(
+            `INSERT INTO public.${tableName} (${columns.join(',')}) VALUES ${placeholders}`,
+            batch.flat()
+        );
+    }
+};
+
 const handleWriteFromTrip = async (client, fileName, tableName, decompressed, listOfAgencyGuids, listOfGuidFromRoute, static_feed_url) => {
     console.log("INITIATING TRIP WRITES: " + static_feed_url);
 
@@ -89,17 +105,17 @@ const handleWriteFromTrip = async (client, fileName, tableName, decompressed, li
     columns.push("agency_id");
     columns.push("id");
 
+    const indexOfRoute = header.indexOf('route_id');
+
     for (const { uuid } of listOfAgencyGuids) {
         const agency_id = uuid;
+        const rows = [];
 
         for (const line of lines) {
             const values = line.split(',').map(v => v.trim());
-
-            const indexOfRoute = header.indexOf('route_id');
             if (!listOfGuidFromRoute.get(agency_id).includes(values[indexOfRoute])) continue;
 
             const params = [];
-
             let trip_id;
             header.forEach((h, i) => {
                 if (sanitized_table_headers_no_id.some(sh => sh.column_name === h)) {
@@ -107,21 +123,16 @@ const handleWriteFromTrip = async (client, fileName, tableName, decompressed, li
                 }
                 if (h === "trip_id") trip_id = values[i] || null;
             });
-
             params.push(agency_id);
-            params.push(trip_id)
-
-            const placeholders = params.map((_, i) => `$${i + 1}`).join(',');
-
-            await client.query(
-                `INSERT INTO public.${tableName} (${columns.join(',')}) VALUES (${placeholders})`,
-                params
-            );
+            params.push(trip_id);
+            rows.push(params);
         }
+
+        if (rows.length > 0) await bulkInsert(client, tableName, columns, rows);
     }
     console.log("COMPLETE TRIP WRITES: " + static_feed_url);
-
 }
+
 const handleWriteFromShapes = async (client, fileName, tableName, decompressed, listOfAgencyGuids, static_feed_url) => {
     console.log("INITIATING SHAPES WRITES: " + static_feed_url);
 
@@ -130,40 +141,34 @@ const handleWriteFromShapes = async (client, fileName, tableName, decompressed, 
 
     var { lines, header, sanitized_table_headers_no_id } = await getFileContents(client, decompressed, fileName, actualTableName, tableName, static_feed_url);
 
-    // const agencyLookup = new Map(listOfAgencyGuids.map(it => [it.agency_id, it.uuid]));
-
     const columns = [...header.map(h => h.replace(`${tableName}_`, '')).filter(h => sanitized_table_headers_no_id.some(sh => sh.column_name === h))];
     columns.push("agency_id");
 
     for (const { uuid } of listOfAgencyGuids) {
         const agency_id = uuid;
-        let shape_id = "";
-        for (const line of lines) {
+        const shapePointRows = [];
+        const seenShapeIds = new Set();
 
+        for (const line of lines) {
             const values = line.split(',').map(v => v.trim());
             const params = [];
-
-            let isInsertPkEnabled = false;
 
             header.forEach((h, i) => {
                 if (sanitized_table_headers_no_id.some(sh => sh.column_name === h.replace(`${tableName}_`, ''))) {
                     params.push(values[i] || null);
-
-                    if (h === `${tableName}_id` && shape_id !== values[i]) {
-                        shape_id = values[i];
-                        isInsertPkEnabled = true;
-                    }
+                    if (h === `${tableName}_id`) seenShapeIds.add(values[i]);
                 }
             });
             params.push(agency_id);
-            const placeholders = params.map((_, i) => `$${i + 1}`).join(',');
-
-            if (isInsertPkEnabled) await client.query(`INSERT INTO public.${tableName} (agency_id, id) VALUES ($1, $2);`, [agency_id, shape_id]);
-            await client.query(
-                `INSERT INTO public.${actualTableName} (${columns.join(',')}) VALUES (${placeholders});`,
-                params
-            );
+            shapePointRows.push(params);
         }
+
+        // Bulk insert distinct shape PKs
+        const shapeRows = [...seenShapeIds].map(id => [agency_id, id]);
+        if (shapeRows.length > 0) await bulkInsert(client, tableName, ['agency_id', 'id'], shapeRows);
+
+        // Bulk insert all shape points
+        if (shapePointRows.length > 0) await bulkInsert(client, actualTableName, columns, shapePointRows);
     }
     console.log("COMPLETED SHAPES WRITES: " + static_feed_url);
 };
