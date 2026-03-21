@@ -3,11 +3,11 @@
 CREATE TABLE IF NOT EXISTS public.agency (
     id                          UUID            NOT NULL,
     name                        VARCHAR(45),
-    url                         VARCHAR(100),
+    url                         VARCHAR(1000),
     timezone                    VARCHAR(75),
     lang                        VARCHAR(45),
     phone                       VARCHAR(45),
-    fare_url                    VARCHAR(100),
+    fare_url                    VARCHAR(1000),
     rt_feed_url                 VARCHAR(1000)    NOT NULL,
     static_feed_url             VARCHAR(1000)    NOT NULL,
     PRIMARY KEY (id)
@@ -30,29 +30,8 @@ CREATE TABLE IF NOT EXISTS public.route (
 );
 
 ALTER TABLE public.route
-ALTER COLUMN short_name TYPE VARCHAR(100),
-ALTER COLUMN long_name TYPE VARCHAR(200);
-
-CREATE TABLE IF NOT EXISTS public.live_vehicle_position (
-    id                          UUID            NOT NULL,
-    agency_id                   UUID            NOT NULL,    
-    route_id                    VARCHAR(45)     NOT NULL,
-    route_short_name            VARCHAR(45),
-    lon                         DOUBLE PRECISION,
-    lat                         DOUBLE PRECISION,
-    vehicle_id                  VARCHAR(45),
-    timestamp                   TIMESTAMPTZ,
-    vehicle_distance_traveled   DOUBLE PRECISION,
-    speed                       DOUBLE PRECISION,
-    PRIMARY KEY (id),
-    CONSTRAINT fk_agency    FOREIGN KEY (agency_id)            REFERENCES public.agency (id)              ON DELETE CASCADE,
-    CONSTRAINT fk_route     FOREIGN KEY (agency_id, route_id)  REFERENCES public.route (agency_id, id)    ON DELETE CASCADE
-);
-
-ALTER TABLE public.live_vehicle_position
-ADD COLUMN IF NOT EXISTS head_bearing DOUBLE PRECISION,
-ADD COLUMN IF NOT EXISTS trip_id VARCHAR(45) NOT NULL,
-ADD CONSTRAINT fk_trip FOREIGN KEY (agency_id, trip_id) REFERENCES public.trip (agency_id, id) ON DELETE CASCADE;
+ALTER COLUMN short_name TYPE VARCHAR(500),
+ALTER COLUMN long_name TYPE VARCHAR(1000);
 
 -- Represents the shape as a whole (one row per shape)
 CREATE TABLE IF NOT EXISTS public.shape (
@@ -80,14 +59,32 @@ CREATE TABLE IF NOT EXISTS public.trip (
     service_id                  VARCHAR(45)     NOT NULL,
     agency_id                   UUID            NOT NULL,
     route_id                    VARCHAR(45)     NOT NULL,
-    trip_headsign               VARCHAR(100)    NOT NULL,
-    direction_id                VARCHAR(10)     NOT NULL,
-    shape_id                    VARCHAR(45)     NOT NULL,
-    service_id                  VARCHAR(45)     NOT NULL,
-    trip_headsign               VARCHAR(100)    NOT NULL,
-    direction_id                VARCHAR(10)     NOT NULL,
+    trip_headsign               VARCHAR(1000),
+    direction_id                VARCHAR(10),
+    shape_id                    VARCHAR(45),
     PRIMARY KEY (agency_id, id),
     CONSTRAINT fk_agency    FOREIGN KEY (agency_id)           REFERENCES public.agency (id)                 ON DELETE CASCADE,
     CONSTRAINT fk_route     FOREIGN KEY (agency_id, route_id) REFERENCES public.route (agency_id, id)       ON DELETE CASCADE,
     CONSTRAINT fk_shape     FOREIGN KEY (agency_id, shape_id) REFERENCES public.shape (agency_id, id)       ON DELETE CASCADE
 );
+
+CREATE TABLE IF NOT EXISTS public.live_vehicle_position (
+    id                          UUID            NOT NULL,
+    agency_id                   UUID            NOT NULL,    
+    route_id                    VARCHAR(45)     NOT NULL,
+    route_short_name            VARCHAR(45),
+    lon                         DOUBLE PRECISION,
+    lat                         DOUBLE PRECISION,
+    vehicle_id                  VARCHAR(45),
+    timestamp                   TIMESTAMPTZ,
+    vehicle_distance_traveled   DOUBLE PRECISION,
+    speed                       DOUBLE PRECISION,
+    PRIMARY KEY (id),
+    CONSTRAINT fk_agency    FOREIGN KEY (agency_id)            REFERENCES public.agency (id)              ON DELETE CASCADE,
+    CONSTRAINT fk_route     FOREIGN KEY (agency_id, route_id)  REFERENCES public.route (agency_id, id)    ON DELETE CASCADE
+);
+
+ALTER TABLE public.live_vehicle_position
+ADD COLUMN IF NOT EXISTS head_bearing DOUBLE PRECISION,
+ADD COLUMN IF NOT EXISTS trip_id VARCHAR(45) NOT NULL,
+ADD CONSTRAINT fk_trip FOREIGN KEY (agency_id, trip_id) REFERENCES public.trip (agency_id, id) ON DELETE CASCADE;

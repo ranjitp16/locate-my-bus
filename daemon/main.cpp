@@ -179,14 +179,21 @@ int mainLogic(int argc, char* args[], pqxx::connection* conn){
 				}
 			}
 			unordered_set<string> busRoutesInThisAgency;
-			
+			unordered_set<string> busTripsInThisAgency;
+
 			// Start a transaction
 			pqxx::work txn(*conn);
-			
+
 			auto busRoutes = txn.exec_params("SELECT id FROM public.route WHERE agency_id = $1", agency_id);
 
 			for (const auto& row : busRoutes) {
 				busRoutesInThisAgency.emplace(row["id"].as<string>());
+			}
+
+			auto busTrips = txn.exec_params("SELECT id FROM public.trip WHERE agency_id = $1", agency_id);
+
+			for (const auto& row : busTrips) {
+				busTripsInThisAgency.emplace(row["id"].as<string>());
 			}
 
 			for (const auto& [vid, entity] : vehicles) {
@@ -203,8 +210,10 @@ int mainLogic(int argc, char* args[], pqxx::connection* conn){
 					string bearing = to_string(entity.vehicle().position().bearing());
 					string trip_id = entity.vehicle().trip().trip_id();
 
-					// filter out such records, where the routes are not in the db
+					// filter out records where the route or trip are not in the db
 					if (route_id.empty() || busRoutesInThisAgency.find(route_id) == busRoutesInThisAgency.end())
+						continue;
+					if (trip_id.empty() || busTripsInThisAgency.find(trip_id) == busTripsInThisAgency.end())
 						continue;
 					if (!insertV.empty()) insertV += ", ";
 
