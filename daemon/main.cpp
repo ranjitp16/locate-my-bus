@@ -228,7 +228,7 @@ int mainLogic(int argc, char* args[], pqxx::connection* conn){
 						+ odometry + ","
 						+ speed + ","
 						+ bearing + ","
-						+ trip_id + ")";
+						+ "'" + trip_id + "')";
 				}
 			}
 

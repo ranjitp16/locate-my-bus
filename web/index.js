@@ -71,9 +71,10 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 app
-    .get('/routes/:agency_id', async (req, res) => {
-        const { agency_id } = req.params
-        const { rows } = await pool.query('SELECT id, long_name FROM public.route WHERE agency_id = $1', [agency_id]);
+    .get('/routes/:agency_id/:running_route', async (req, res) => {
+        const { agency_id, running_route } = req.params
+        const { rows } = await pool.query(running_route === '1' ? 'SELECT id, long_name FROM public.route WHERE agency_id = $1 AND id in (SELECT DISTINCT route_id FROM public.live_vehicle_position WHERE agency_id = $1)' :
+            'SELECT id, long_name FROM public.route WHERE agency_id = $1', [agency_id]);
         res.send(rows)
     })
     .get('/live/:agency_id/:route_id', async (req, res) => {
