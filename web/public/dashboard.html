@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Monitor — Locate My Bus</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+    <link rel="stylesheet" href="/assets/base.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" crossorigin="anonymous">
+    <style>
+        .nav-tabs { border-bottom: 1px solid var(--border); }
+        .nav-tabs .nav-link {
+            color: var(--text-muted); border: none;
+            border-bottom: 2px solid transparent; border-radius: 0;
+            background: none; font-family: inherit; font-size: 0.85rem;
+            padding: 8px 16px; margin-bottom: -1px;
+        }
+        .nav-tabs .nav-link:hover { color: var(--text); border-bottom-color: var(--border); }
+        .nav-tabs .nav-link.active { color: var(--accent); border-bottom-color: var(--accent); background: none; }
+        .kpi-label { font-size: 0.75rem; color: var(--text-muted); margin-bottom: 2px; }
+        .kpi-value { font-size: 1.5rem; font-weight: 700; color: var(--text); line-height: 1.1; }
+        .kpi-sub   { font-size: 0.7rem; color: var(--text-muted); margin-top: 3px; }
+        .section-label {
+            font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em;
+            color: var(--text-muted); padding: 10px 16px 8px;
+            border-bottom: 1px solid var(--border);
+        }
+        .section-label.d-flex { align-items: center; justify-content: space-between; padding-right: 12px; }
+        #latency-chart { overflow-x: auto; }
+        #latency-chart svg { display: block; }
+    </style>
+    <script>
+        (function () {
+            const saved = localStorage.getItem('theme');
+            if (saved) document.documentElement.setAttribute('data-theme', saved);
+            else if (window.matchMedia('(prefers-color-scheme: dark)').matches) document.documentElement.setAttribute('data-theme', 'dark');
+            else document.documentElement.setAttribute('data-theme', 'light');
+        })();
+    </script>
+</head>
+<body style="padding-top: 48px; padding-bottom: 40px;">
+
+<header class="site-header">
+    <a href="/" class="brand">Locate My Bus</a>
+    <div class="header-right">
+        <a href="/" class="back-link">← Home</a>
+        <button id="theme-toggle"></button>
+    </div>
+</header>
+
+<!-- Access key gate modal -->
+<div class="modal fade" id="keyModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false" aria-labelledby="keyModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header border-0 pb-0">
+                <h6 class="modal-title" id="keyModalLabel">Monitor Access</h6>
+            </div>
+            <div class="modal-body pt-2">
+                <label for="gate-key" class="form-label">Access Key</label>
+                <input type="password" class="form-control" id="gate-key" placeholder="Enter access key" autocomplete="current-password">
+                <div id="gate-error" class="small mt-2" style="display:none;color:var(--danger);"></div>
+            </div>
+            <div class="modal-footer border-0 pt-0">
+                <button type="button" class="btn btn-primary btn-sm px-4" id="gate-submit">Unlock</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Iteration drill-down modal (raw tab) -->
+<div class="modal fade" id="execModal" tabindex="-1" aria-labelledby="execModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header border-0 pb-1">
+                <h6 class="modal-title" id="execModalLabel">Iteration Details</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div id="exec-loading" class="text-center py-4">
+                    <div class="spinner-border spinner-border-sm" role="status"></div>
+                </div>
+                <div class="table-responsive" id="exec-table-wrap" style="display:none;">
+                    <table class="table table-hover align-middle mb-0 small">
+                        <thead>
+                            <tr><th>#</th><th>Agency</th><th>Cache</th><th>Exec (ms)</th><th>Download (ms)</th><th>Status</th><th>Error</th></tr>
+                        </thead>
+                        <tbody id="exec-tbody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="container-xl px-4 py-4" id="dashboard-content" style="display:none;">
+
+    <div class="d-flex align-items-center justify-content-between mb-4">
+        <h4 class="fw-semibold mb-0">Poll Monitor</h4>
+        <button class="btn btn-sm" id="refresh-btn" style="background:var(--surface-alt);color:var(--text);border:1px solid var(--border);">
+            <i class="fa-solid fa-rotate-right me-1"></i>Refresh
+        </button>
+    </div>
+
+    <ul class="nav nav-tabs mb-4" id="dashTabs" role="tablist">
+        <li class="nav-item" role="presentation">
+            <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-raw" type="button" role="tab">Raw Data</button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-analytics" type="button" role="tab">Analytics</button>
+        </li>
+    </ul>
+
+    <div class="tab-content">
+
+        <!-- ── Tab 1: Raw Data ── -->
+        <div class="tab-pane fade show active" id="tab-raw" role="tabpanel">
+            <div class="row g-3 mb-4">
+                <div class="col-6 col-md-3"><div class="card shadow-sm h-100"><div class="card-body">
+                    <div class="kpi-label">Total Iterations</div>
+                    <div class="kpi-value" id="stat-iterations">—</div>
+                </div></div></div>
+                <div class="col-6 col-md-3"><div class="card shadow-sm h-100"><div class="card-body">
+                    <div class="kpi-label">Total Executions</div>
+                    <div class="kpi-value" id="stat-executions">—</div>
+                </div></div></div>
+                <div class="col-6 col-md-3"><div class="card shadow-sm h-100"><div class="card-body">
+                    <div class="kpi-label">Avg Exec Time</div>
+                    <div class="kpi-value" id="stat-avg-exec">—</div>
+                </div></div></div>
+                <div class="col-6 col-md-3"><div class="card shadow-sm h-100"><div class="card-body">
+                    <div class="kpi-label">Error Rate</div>
+                    <div class="kpi-value" id="stat-error-rate">—</div>
+                </div></div></div>
+            </div>
+
+            <h5 class="fw-semibold mb-3">Recent Poll Iterations</h5>
+            <div class="card shadow-sm">
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-hover align-middle mb-0">
+                            <thead>
+                                <tr><th>ID</th><th>Started At</th><th>Agencies</th><th>Avg Exec (ms)</th><th>Errors</th><th>Cache Hits</th><th></th></tr>
+                            </thead>
+                            <tbody id="iter-tbody">
+                                <tr><td colspan="7" class="text-center py-4"><div class="spinner-border spinner-border-sm" role="status"></div></td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ── Tab 2: Analytics ── -->
+        <div class="tab-pane fade" id="tab-analytics" role="tabpanel">
+            <div id="analytics-loading" class="text-center py-5">
+                <div class="spinner-border spinner-border-sm" role="status"></div>
+            </div>
+            <div id="analytics-body" style="display:none;">
+
+                <!-- KPI cards -->
+                <div class="row g-3 mb-4" id="analytics-kpis"></div>
+
+                <!-- Download + Exec tables -->
+                <div class="row g-3 mb-4">
+                    <div class="col-md-6">
+                        <div class="card shadow-sm h-100">
+                            <div class="section-label">Avg download time by feed (ms, across all iterations)</div>
+                            <div class="table-responsive">
+                                <table class="table align-middle mb-0 small">
+                                    <thead><tr><th>Feed</th><th>Avg dl</th><th>Max dl</th></tr></thead>
+                                    <tbody id="dl-tbody"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="card shadow-sm h-100">
+                            <div class="section-label">Avg total execution time by feed (ms)</div>
+                            <div class="table-responsive">
+                                <table class="table align-middle mb-0 small">
+                                    <thead><tr><th>Feed</th><th>Avg exec</th><th>Max exec</th></tr></thead>
+                                    <tbody id="exec-analytics-tbody"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Feed architecture -->
+                <div class="card shadow-sm mb-4">
+                    <div class="section-label">Feed architecture summary</div>
+                    <div class="table-responsive">
+                        <table class="table align-middle mb-0 small">
+                            <thead><tr><th>Feed</th><th>Strategy</th><th>Source ID</th><th class="text-end">Cache hits</th></tr></thead>
+                            <tbody id="arch-tbody"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Latency chart -->
+                <div class="card shadow-sm mb-4">
+                    <div class="section-label d-flex">
+                        <span id="chart-title">Download latency per iteration (ms)</span>
+                        <select id="chart-agency-select" class="form-select form-select-sm" style="width:auto;font-family:inherit;font-size:0.78rem;background:var(--bg);color:var(--text);border-color:var(--border);"></select>
+                    </div>
+                    <div class="p-3" id="latency-chart"></div>
+                </div>
+
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
+<script>
+    /* ── Theme ── */
+    (function () {
+        const btn = document.getElementById('theme-toggle');
+        function applyTheme(t) {
+            document.documentElement.setAttribute('data-theme', t);
+            btn.textContent = t === 'dark' ? '☀ Light' : '☾ Dark';
+        }
+        btn.addEventListener('click', () => {
+            const next = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+            localStorage.setItem('theme', next);
+            applyTheme(next);
+        });
+        applyTheme(document.documentElement.getAttribute('data-theme') || 'light');
+    })();
+
+    /* ── Auth ── */
+    const SESSION_KEY = 'dash-access-key';
+    let accessKey = sessionStorage.getItem(SESSION_KEY);
+    const keyModal  = new bootstrap.Modal(document.getElementById('keyModal'));
+    const execModal = new bootstrap.Modal(document.getElementById('execModal'));
+
+    function authFetch(url) { return fetch(url, { headers: { 'x-access-key': accessKey } }); }
+
+    async function unlock() {
+        const input = document.getElementById('gate-key');
+        const errEl = document.getElementById('gate-error');
+        const btn   = document.getElementById('gate-submit');
+        const key   = input.value.trim();
+        if (!key) return;
+        btn.disabled = true; btn.textContent = 'Checking…'; errEl.style.display = 'none';
+        try {
+            const r = await fetch('/api/dashboard/stats', { headers: { 'x-access-key': key } });
+            if (r.status === 401) {
+                errEl.textContent = 'Invalid access key.'; errEl.style.display = '';
+                btn.disabled = false; btn.textContent = 'Unlock'; return;
+            }
+            accessKey = key;
+            sessionStorage.setItem(SESSION_KEY, key);
+            keyModal.hide();
+            renderStats(await r.json());
+            document.getElementById('dashboard-content').style.display = '';
+            loadIterations();
+        } catch {
+            errEl.textContent = 'Network error.'; errEl.style.display = '';
+            btn.disabled = false; btn.textContent = 'Unlock';
+        }
+    }
+
+    document.getElementById('gate-submit').addEventListener('click', unlock);
+    document.getElementById('gate-key').addEventListener('keydown', e => { if (e.key === 'Enter') unlock(); });
+
+    if (accessKey) {
+        authFetch('/api/dashboard/stats')
+            .then(r => r.ok ? r.json() : Promise.reject(r.status))
+            .then(stats => {
+                renderStats(stats);
+                document.getElementById('dashboard-content').style.display = '';
+                loadIterations();
+            })
+            .catch(s => {
+                if (s === 401) { sessionStorage.removeItem(SESSION_KEY); accessKey = null; }
+                keyModal.show();
+            });
+    } else {
+        keyModal.show();
+    }
+
+    /* ── Raw tab: stat cards ── */
+    function renderStats(s) {
+        document.getElementById('stat-iterations').textContent = s.total_iterations  ?? '—';
+        document.getElementById('stat-executions').textContent = s.total_executions  ?? '—';
+        document.getElementById('stat-avg-exec').textContent   = s.avg_execution_ms  != null ? s.avg_execution_ms + ' ms' : '—';
+        document.getElementById('stat-error-rate').textContent = s.error_pct         != null ? s.error_pct + '%' : '—';
+    }
+
+    /* ── Raw tab: iterations table ── */
+    function loadIterations() {
+        authFetch('/api/dashboard/iterations')
+            .then(r => r.json())
+            .then(rows => {
+                const tbody = document.getElementById('iter-tbody');
+                if (!rows.length) {
+                    const td = document.createElement('td');
+                    td.colSpan = 7; td.className = 'text-center py-4';
+                    td.style.cssText = 'color:var(--text-muted);font-style:italic;';
+                    td.textContent = 'No iterations yet.';
+                    const tr = document.createElement('tr'); tr.appendChild(td);
+                    tbody.replaceChildren(tr); return;
+                }
+                tbody.replaceChildren(...rows.map(row => {
+                    const tr = document.createElement('tr');
+                    const tdId   = document.createElement('td'); tdId.textContent = row.id;
+                    const tdTime = document.createElement('td'); tdTime.textContent = new Date(row.started_at).toLocaleString();
+                    const tdAg   = document.createElement('td'); tdAg.textContent = row.agency_count;
+                    const tdAvg  = document.createElement('td'); tdAvg.textContent = row.avg_execution_ms != null ? row.avg_execution_ms + ' ms' : '—';
+                    const tdErr  = document.createElement('td');
+                    if (row.error_count > 0) {
+                        const b = document.createElement('span'); b.className = 'badge';
+                        b.style.cssText = 'background:var(--danger);color:#fff;';
+                        b.textContent = row.error_count; tdErr.appendChild(b);
+                    } else { tdErr.textContent = '0'; }
+                    const tdCache = document.createElement('td'); tdCache.textContent = row.cache_hits;
+                    const viewBtn = document.createElement('button'); viewBtn.className = 'btn btn-sm';
+                    viewBtn.style.cssText = 'background:var(--surface-alt);color:var(--text);border:1px solid var(--border);';
+                    viewBtn.textContent = 'View'; viewBtn.dataset.iterationId = row.id;
+                    const tdAct = document.createElement('td'); tdAct.appendChild(viewBtn);
+                    tr.append(tdId, tdTime, tdAg, tdAvg, tdErr, tdCache, tdAct);
+                    return tr;
+                }));
+            })
+            .catch(() => {});
+    }
+
+    /* ── Refresh ── */
+    document.getElementById('refresh-btn').addEventListener('click', () => {
+        const spinner = document.createElement('div');
+        spinner.className = 'spinner-border spinner-border-sm'; spinner.setAttribute('role', 'status');
+        const td = document.createElement('td'); td.colSpan = 7; td.className = 'text-center py-4'; td.appendChild(spinner);
+        const tr = document.createElement('tr'); tr.appendChild(td);
+        document.getElementById('iter-tbody').replaceChildren(tr);
+        authFetch('/api/dashboard/stats').then(r => r.json()).then(renderStats).catch(() => {});
+        loadIterations();
+        if (analyticsLoaded) { analyticsLoaded = false; loadAnalytics(); }
+    });
+
+    /* ── Raw tab: drill-down modal ── */
+    document.getElementById('iter-tbody').addEventListener('click', e => {
+        const btn = e.target.closest('[data-iteration-id]');
+        if (!btn) return;
+        const id = btn.dataset.iterationId;
+        document.getElementById('execModalLabel').textContent    = 'Iteration #' + id;
+        document.getElementById('exec-loading').style.display    = '';
+        document.getElementById('exec-table-wrap').style.display = 'none';
+        document.getElementById('exec-tbody').replaceChildren();
+        execModal.show();
+        authFetch('/api/dashboard/executions/' + id)
+            .then(r => r.json())
+            .then(rows => {
+                document.getElementById('exec-tbody').replaceChildren(...rows.map(fe => {
+                    const tr = document.createElement('tr');
+                    const tdId   = document.createElement('td'); tdId.textContent = fe.id;
+                    const tdName = document.createElement('td'); tdName.textContent = fe.agency_name || '—';
+                    const icon   = document.createElement('i');
+                    icon.className = 'fa-solid ' + (fe.is_cache_hit ? 'fa-check' : 'fa-xmark');
+                    icon.style.color = fe.is_cache_hit ? 'var(--accent)' : 'var(--text-muted)';
+                    const tdCache = document.createElement('td'); tdCache.appendChild(icon);
+                    const tdExec  = document.createElement('td'); tdExec.textContent = fe.execution_ms != null ? fe.execution_ms + ' ms' : '—';
+                    const tdDl    = document.createElement('td'); tdDl.textContent   = fe.download_ms  != null ? fe.download_ms  + ' ms' : '—';
+                    const badge   = document.createElement('span'); badge.className = 'badge';
+                    badge.style.cssText = fe.status === 'success' ? 'background:var(--accent);color:#fff;' : 'background:var(--danger);color:#fff;';
+                    badge.textContent = fe.status;
+                    const tdStatus = document.createElement('td'); tdStatus.appendChild(badge);
+                    const tdErrMsg = document.createElement('td'); tdErrMsg.className = 'small'; tdErrMsg.style.color = 'var(--danger)'; tdErrMsg.textContent = fe.error_message || '';
+                    tr.append(tdId, tdName, tdCache, tdExec, tdDl, tdStatus, tdErrMsg);
+                    return tr;
+                }));
+                document.getElementById('exec-loading').style.display    = 'none';
+                document.getElementById('exec-table-wrap').style.display = '';
+            })
+            .catch(() => { document.getElementById('exec-loading').style.display = 'none'; });
+    });
+
+    /* ════════════════════════════════════════
+       ── Analytics Tab ──
+    ════════════════════════════════════════ */
+    let analyticsLoaded = false;
+    let latencyData     = [];
+
+    document.getElementById('dashTabs').addEventListener('shown.bs.tab', e => {
+        if (e.target.getAttribute('data-bs-target') === '#tab-analytics' && !analyticsLoaded) {
+            loadAnalytics();
+        }
+    });
+
+    function loadAnalytics() {
+        document.getElementById('analytics-loading').style.display = '';
+        document.getElementById('analytics-body').style.display    = 'none';
+        Promise.all([
+            authFetch('/api/dashboard/analytics').then(r => r.json()),
+            authFetch('/api/dashboard/latency').then(r => r.json()),
+        ]).then(([analytics, latency]) => {
+            latencyData = latency;
+            renderAnalyticsKPIs(analytics.summary, analytics.feedStats);
+            renderDownloadTable(analytics.feedStats);
+            renderExecTable(analytics.feedStats);
+            renderArchitectureTable(analytics.feedStats);
+            renderChartSelect(latency);
+            document.getElementById('analytics-loading').style.display = 'none';
+            document.getElementById('analytics-body').style.display    = '';
+            analyticsLoaded = true;
+        }).catch(() => {
+            document.getElementById('analytics-loading').style.display = 'none';
+        });
+    }
+
+    /* KPI cards */
+    function renderAnalyticsKPIs(s, feedStats) {
+        const totalSlow = feedStats.reduce((acc, f) => acc + (f.slow_incidents || 0), 0);
+        const kpis = [
+            {
+                label: 'Total Iterations',
+                value: s.total_iterations ?? '—',
+                sub:   s.min_iteration_id != null ? '#' + s.min_iteration_id + ' → #' + s.max_iteration_id : '',
+            },
+            {
+                label: 'Unique Feeds',
+                value: s.unique_feeds ?? '—',
+                sub:   'distinct rt_feed URLs',
+            },
+            {
+                label: 'Cycle Interval',
+                value: s.avg_cycle_seconds != null ? '~' + s.avg_cycle_seconds + ' s' : '—',
+                sub:   'avg between iterations',
+            },
+            {
+                label: 'Cache Efficiency',
+                value: s.cache_hit_pct != null ? s.cache_hit_pct + '%' : '—',
+                sub:   'of executions served from cache',
+            },
+            {
+                label: 'Slow-feed Incidents',
+                value: totalSlow,
+                sub:   '> 3× per-feed baseline',
+                danger: totalSlow > 0,
+            },
+        ];
+        document.getElementById('analytics-kpis').replaceChildren(...kpis.map(k => {
+            const col  = document.createElement('div'); col.className = 'col-6 col-md';
+            const card = document.createElement('div'); card.className = 'card shadow-sm h-100';
+            const body = document.createElement('div'); body.className = 'card-body';
+            const lbl  = document.createElement('div'); lbl.className = 'kpi-label'; lbl.textContent = k.label;
+            const val  = document.createElement('div'); val.className = 'kpi-value';
+            val.style.color = k.danger ? 'var(--danger)' : 'var(--text)';
+            val.textContent = k.value;
+            body.append(lbl, val);
+            if (k.sub) {
+                const sub = document.createElement('div'); sub.className = 'kpi-sub'; sub.textContent = k.sub;
+                body.appendChild(sub);
+            }
+            card.appendChild(body); col.appendChild(card);
+            return col;
+        }));
+    }
+
+    /* Group feedStats by rt_feed_url. Primary = lowest cache_hits (actual fetcher). */
+    function groupByFeed(feedStats) {
+        const map = new Map();
+        feedStats.forEach(f => {
+            if (!map.has(f.rt_feed_url)) map.set(f.rt_feed_url, []);
+            map.get(f.rt_feed_url).push(f);
+        });
+        return [...map.values()].map(group => {
+            group.sort((a, b) => a.cache_hits - b.cache_hits);
+            return {
+                primary:        group[0],
+                cacheCount:     group.length - 1,
+                totalCacheHits: group.reduce((s, f) => s + f.cache_hits, 0),
+            };
+        });
+    }
+
+    /* Download time table */
+    function renderDownloadTable(feedStats) {
+        document.getElementById('dl-tbody').replaceChildren(...groupByFeed(feedStats).map(g => {
+            const p = g.primary;
+            const isAnomaly = p.max_download_ms > 3 * p.avg_download_ms;
+            const tr = document.createElement('tr');
+
+            const tdName = document.createElement('td'); tdName.textContent = p.agency_name;
+            if (isAnomaly) {
+                const b = document.createElement('span'); b.className = 'badge ms-1';
+                b.style.cssText = 'background:var(--danger);color:#fff;font-size:0.65rem;';
+                b.textContent = 'anomaly'; tdName.appendChild(b);
+            }
+            if (g.cacheCount > 0) {
+                const b = document.createElement('span'); b.className = 'badge ms-1';
+                b.style.cssText = 'background:var(--surface-alt);color:var(--text-muted);border:1px solid var(--border);font-size:0.65rem;';
+                b.textContent = 'cached ×' + g.cacheCount; tdName.appendChild(b);
+            }
+
+            const tdAvg = document.createElement('td'); tdAvg.textContent = p.avg_download_ms != null ? p.avg_download_ms + ' ms' : '—';
+            const tdMax = document.createElement('td'); tdMax.textContent = p.max_download_ms != null ? p.max_download_ms + ' ms' : '—';
+            if (isAnomaly) tdMax.style.color = 'var(--danger)';
+
+            tr.append(tdName, tdAvg, tdMax);
+            return tr;
+        }));
+    }
+
+    /* Execution time table */
+    function renderExecTable(feedStats) {
+        document.getElementById('exec-analytics-tbody').replaceChildren(...groupByFeed(feedStats).map(g => {
+            const p  = g.primary;
+            const tr = document.createElement('tr');
+            const tdName = document.createElement('td'); tdName.textContent = p.agency_name;
+            const tdAvg  = document.createElement('td'); tdAvg.textContent  = p.avg_exec_ms != null ? p.avg_exec_ms + ' ms' : '—';
+            const tdMax  = document.createElement('td'); tdMax.textContent  = p.max_exec_ms != null ? p.max_exec_ms + ' ms' : '—';
+            tr.append(tdName, tdAvg, tdMax);
+            return tr;
+        }));
+    }
+
+    /* Feed architecture table */
+    function renderArchitectureTable(feedStats) {
+        document.getElementById('arch-tbody').replaceChildren(...groupByFeed(feedStats).map(g => {
+            const p  = g.primary;
+            const tr = document.createElement('tr');
+
+            const tdName = document.createElement('td');
+            tdName.textContent = g.cacheCount > 0 ? p.agency_name + ' (×' + (g.cacheCount + 1) + ' agencies)' : p.agency_name;
+
+            const tdStrategy = document.createElement('td');
+            tdStrategy.textContent = g.cacheCount > 0
+                ? 'Fetched once, cached for ' + g.cacheCount + ' more'
+                : 'Fresh fetch every iteration';
+
+            const tdId = document.createElement('td');
+            tdId.style.cssText = 'font-family:monospace;font-size:0.72rem;color:var(--text-muted);';
+            tdId.textContent   = g.cacheCount > 0 ? p.agency_id : '—';
+
+            const tdCache = document.createElement('td'); tdCache.className = 'text-end';
+            tdCache.textContent = g.totalCacheHits;
+
+            tr.append(tdName, tdStrategy, tdId, tdCache);
+            return tr;
+        }));
+    }
+
+    /* Latency chart */
+    function renderChartSelect(latency) {
+        const agencies = [...new Map(latency.map(d => [d.agency_id, d.agency_name])).entries()]
+            .map(([id, name]) => ({ id, name }));
+        const select = document.getElementById('chart-agency-select');
+        select.replaceChildren(...agencies.map(a => {
+            const opt = document.createElement('option'); opt.value = a.id; opt.textContent = a.name; return opt;
+        }));
+        if (agencies.length) renderChart(latency, agencies[0].id);
+        select.onchange = () => renderChart(latencyData, select.value);
+    }
+
+    function renderChart(latency, agencyId) {
+        const data      = latency.filter(d => d.agency_id === agencyId);
+        const container = document.getElementById('latency-chart');
+        if (!data.length) { container.replaceChildren(); return; }
+
+        const values    = data.map(d => d.download_ms || 0);
+        const maxVal    = Math.max(...values, 1);
+        const avg       = values.reduce((a, b) => a + b, 0) / values.length;
+        const threshold = avg * 3;
+
+        const W  = container.clientWidth || 600;
+        const H  = 150;
+        const PL = 44, PR = 8, PT = 16, PB = 24;
+        const cW = W - PL - PR;
+        const cH = H - PT - PB;
+        const bW = Math.max(2, Math.floor(cW / values.length) - 1);
+
+        const NS  = 'http://www.w3.org/2000/svg';
+        const svg = document.createElementNS(NS, 'svg');
+        svg.setAttribute('width', '100%');
+        svg.setAttribute('height', H);
+        svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+
+        function txt(content, x, y, anchor) {
+            const t = document.createElementNS(NS, 'text');
+            t.setAttribute('x', x); t.setAttribute('y', y);
+            t.setAttribute('text-anchor', anchor); t.setAttribute('font-size', '10');
+            t.setAttribute('fill', 'var(--text-muted)'); t.textContent = content;
+            svg.appendChild(t);
+        }
+
+        /* Y-axis labels */
+        txt(maxVal + ' ms', PL - 4, PT + 4,      'end');
+        txt(Math.round(avg) + ' ms avg', PL - 4, PT + cH * (1 - avg / maxVal) + 4, 'end');
+        txt('0',           PL - 4, PT + cH + 4,  'end');
+
+        /* Avg dashed line */
+        const avgY   = PT + cH - (avg / maxVal) * cH;
+        const avgLine = document.createElementNS(NS, 'line');
+        avgLine.setAttribute('x1', PL); avgLine.setAttribute('x2', PL + cW);
+        avgLine.setAttribute('y1', avgY); avgLine.setAttribute('y2', avgY);
+        avgLine.setAttribute('stroke', 'var(--text-muted)');
+        avgLine.setAttribute('stroke-width', '1');
+        avgLine.setAttribute('stroke-dasharray', '3 3');
+        svg.appendChild(avgLine);
+
+        /* Bars */
+        data.forEach((d, i) => {
+            const bH   = Math.max(1, Math.round((d.download_ms / maxVal) * cH));
+            const rect = document.createElementNS(NS, 'rect');
+            rect.setAttribute('x',      PL + i * (bW + 1));
+            rect.setAttribute('y',      PT + cH - bH);
+            rect.setAttribute('width',  bW);
+            rect.setAttribute('height', bH);
+            rect.setAttribute('fill',   d.download_ms > threshold ? 'var(--danger)' : 'var(--accent)');
+            svg.appendChild(rect);
+        });
+
+        /* X-axis: first + last iteration ID */
+        txt('#' + data[0].iteration_id,              PL,      H - 4, 'start');
+        txt('#' + data[data.length - 1].iteration_id, PL + cW, H - 4, 'end');
+
+        container.replaceChildren(svg);
+    }
+</script>
+</body>
+</html>

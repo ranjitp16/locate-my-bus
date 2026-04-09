@@ -12,6 +12,7 @@
 #include <format>
 #include <thread>
 #include <unordered_set>
+#include <optional>
 
 using namespace std;
 using namespace transit_realtime;
@@ -49,7 +50,8 @@ inline string generate_uuid_v4() {
 
 stringstream downloadFile(
 	string url_path,
-	string api_key_for_header
+	string api_key_for_header,
+	int64_t& out_download_time_us
 ){
 
 	CURL* curl;
@@ -58,9 +60,9 @@ stringstream downloadFile(
 
 	curl_global_init(CURL_GLOBAL_DEFAULT);
 	curl = curl_easy_init();
-	
+
 	if(curl){
-		
+
 		if(!api_key_for_header.empty()){
 			struct curl_slist* headers = nullptr;
 			headers = curl_slist_append(headers, ("apikey: " + api_key_for_header).c_str());
@@ -71,23 +73,20 @@ stringstream downloadFile(
 		curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_data);
 		curl_easy_setopt(curl, CURLOPT_WRITEDATA, &result);
 
-		auto startTime = chrono::duration_cast<chrono::microseconds>(
+		auto dl_start = chrono::duration_cast<chrono::microseconds>(
       	chrono::system_clock::now().time_since_epoch()
   		).count();
-		cout << "start Downloading the vehicle Position: " << startTime <<endl; 
 
 		res = curl_easy_perform(curl);
 
-		auto endTime = chrono::duration_cast<chrono::microseconds>(
+		auto dl_end = chrono::duration_cast<chrono::microseconds>(
       	chrono::system_clock::now().time_since_epoch()
   		).count();
 
-		cout << "end Downloading the vehicle Position: " << endTime << endl; 
-
-		cout<< "Download took " << endTime - startTime << " microsecond" <<endl;
+		out_download_time_us = dl_end - dl_start;
 
 		if(res != CURLE_OK){
-			cerr << "Err downloading the file" << curl_easy_strerror(res) << endl;
+			cerr << "Err downloading the file: " << curl_easy_strerror(res) << endl;
 			throw runtime_error("Error downloading the file: " + string(curl_easy_strerror(res)));
 		}
 		curl_easy_cleanup(curl);
@@ -100,77 +99,99 @@ stringstream downloadFile(
 
 
 
+struct FeedExecutionRecord {
+	string agency_id;
+	bool is_cache_hit;
+	int64_t program_start_us;
+	int64_t program_end_us;
+	optional<int64_t> download_time_us;
+	string status;
+	optional<string> error_message;
+};
+
 int mainLogic(int argc, char* args[], pqxx::connection* conn){
 
 	vector<pair<string, pair<string,string>>> agencies; // <uuid, <rt_feed_url, api_key>>
 	try
 	{
-		// try fetching agencies from database
-		{
-			pqxx::nontransaction ntxn(*conn);
-			auto result = ntxn.exec("SELECT * FROM public.agency ORDER BY rt_feed_url");
-			for (const auto& row : result) {
-				pair<string, string> url_and_api_pair = 
-					make_pair(
-						row["rt_feed_url"].as<string>(), 
-						row["api_key_in_header"].as<string>("")
-					);
-
-				agencies.emplace_back(
-					row["id"].as<string>(),
-					url_and_api_pair
+		pqxx::nontransaction ntxn(*conn);
+		auto result = ntxn.exec("SELECT * FROM public.agency ORDER BY rt_feed_url");
+		for (const auto& row : result) {
+			pair<string, string> url_and_api_pair =
+				make_pair(
+					row["rt_feed_url"].as<string>(),
+					row["api_key_in_header"].as<string>("")
 				);
-			}
-		} // ntxn destroyed here, conn is clean
-		cout << "Fetched " << agencies.size() << " " << "agencies from the database, initiating fetch-n-parse" << endl;
+
+			agencies.emplace_back(
+				row["id"].as<string>(),
+				url_and_api_pair
+			);
+		}
 	}
 	catch(const std::exception& e)
 	{
-		std::cerr << e.what() << '\n';
+		cerr << "Error fetching agencies: " << e.what() << '\n';
+		return 1;
 	}
-	
 
-	// Add an identifier to see if the we can re-use the already existing stream, as many angencies share the rt_feed.
+	// Insert poll_iteration row and get back its generated id
+	int64_t poll_iteration_id = -1;
+	try {
+		pqxx::work pi_txn(*conn);
+		auto pi_result = pi_txn.exec_params(
+			"INSERT INTO public.poll_iteration (started_at, agency_count, total_executions) "
+			"VALUES (NOW(), $1, $2) RETURNING id",
+			(int)agencies.size(),
+			(int)agencies.size()
+		);
+		poll_iteration_id = pi_result[0][0].as<int64_t>();
+		pi_txn.commit();
+	} catch (const exception& e) {
+		cerr << "Error inserting poll_iteration: " << e.what() << "\n";
+		return 1;
+	}
+
+	vector<FeedExecutionRecord> feed_executions;
+	feed_executions.reserve(agencies.size());
+
 	stringstream ss;
 	FeedMessage feed;
 	string last_rt_feed_url = "";
 	string last_agency = "";
 
-	// itterate over agencies and fetch rt feed to parse and upserts the feed
     for (const auto& [agency_id, rt_feed_url_and_api_pair] : agencies) {
 		auto startTime = chrono::duration_cast<chrono::microseconds>(
 			chrono::system_clock::now().time_since_epoch()
 		).count();
-		
+
 		string rt_feed_url = rt_feed_url_and_api_pair.first;
 		string api_key = rt_feed_url_and_api_pair.second;
-		
-		cout << "Program start time: " << startTime << " rt_feed: " << rt_feed_url << ", api_key(if any): " << api_key  << endl;
-		
-		
+		bool is_cache_hit = (rt_feed_url == last_rt_feed_url);
+		int64_t download_time_us = 0;
+		string status = "success";
+		string error_message = "";
+
 		try {
-			
-			if(rt_feed_url != last_rt_feed_url){
-				cout << "fetching : " << rt_feed_url<<endl; 
+
+			if(!is_cache_hit){
 				last_rt_feed_url = rt_feed_url;
 				last_agency = agency_id;
 				ss = downloadFile(
 					!rt_feed_url.empty() ? rt_feed_url : throw invalid_argument("rt_feed_url can not be null"),
-					api_key // empty handled in the method;
+					api_key,
+					download_time_us
 				);
 				if (!feed.ParseFromIstream(&ss)) {
 					throw runtime_error("Failed to parse feed message.");
 				}
 			}
-			else {
-				cout << "Re-using feed from : " << last_agency << endl;
-			}
-			
+
 			string insertQ = "INSERT INTO public.live_vehicle_position(id, agency_id, route_id, route_short_name, lon, lat, vehicle_id, \"timestamp\", vehicle_distance_traveled, speed, head_bearing, trip_id) VALUES ";
 			string insertV = "";
-			
+
 			map<string, FeedEntity> vehicles;
-			
+
 			for (int i = 0; i < feed.entity_size(); i++) {
 				FeedEntity entity = feed.entity(i);
 				if (entity.has_vehicle()) {
@@ -181,17 +202,14 @@ int mainLogic(int argc, char* args[], pqxx::connection* conn){
 			unordered_set<string> busRoutesInThisAgency;
 			unordered_set<string> busTripsInThisAgency;
 
-			// Start a transaction
 			pqxx::work txn(*conn);
 
 			auto busRoutes = txn.exec_params("SELECT id FROM public.route WHERE agency_id = $1", agency_id);
-
 			for (const auto& row : busRoutes) {
 				busRoutesInThisAgency.emplace(row["id"].as<string>());
 			}
 
 			auto busTrips = txn.exec_params("SELECT id FROM public.trip WHERE agency_id = $1", agency_id);
-
 			for (const auto& row : busTrips) {
 				busTripsInThisAgency.emplace(row["id"].as<string>());
 			}
@@ -210,7 +228,6 @@ int mainLogic(int argc, char* args[], pqxx::connection* conn){
 					string bearing = to_string(entity.vehicle().position().bearing());
 					string trip_id = entity.vehicle().trip().trip_id();
 
-					// filter out records where the route or trip are not in the db
 					if (route_id.empty() || busRoutesInThisAgency.find(route_id) == busRoutesInThisAgency.end())
 						continue;
 					if (trip_id.empty() || busTripsInThisAgency.find(trip_id) == busTripsInThisAgency.end())
@@ -235,25 +252,50 @@ int mainLogic(int argc, char* args[], pqxx::connection* conn){
 			if(!insertV.empty())
 			{
 				txn.exec_params("DELETE FROM public.live_vehicle_position WHERE agency_id = $1", agency_id);
-				pqxx::result rows = txn.exec(insertQ + insertV +";");
+				txn.exec(insertQ + insertV + ";");
 			}
 
 			txn.commit();
-			
+
 		} catch (const exception& e) {
-			cerr << "Error while fetching and parsing the protobuf: " << e.what() << "\n";
-			return 1;
-		} 
-		
-			
-			
-			auto endTime = chrono::duration_cast<chrono::microseconds>(
+			cerr << "Error processing agency " << agency_id << ": " << e.what() << "\n";
+			status = "error";
+			error_message = e.what();
+		}
+
+		auto endTime = chrono::duration_cast<chrono::microseconds>(
 			chrono::system_clock::now().time_since_epoch()
-			).count();
-	
-			cout << "Program End time: " << endTime << " | Time to execute " << endTime - startTime <<endl;  
-		
+		).count();
+
+		feed_executions.push_back({
+			agency_id,
+			is_cache_hit,
+			startTime,
+			endTime,
+			is_cache_hit ? nullopt : optional<int64_t>(download_time_us),
+			status,
+			error_message.empty() ? nullopt : optional<string>(error_message)
+		});
 	}
+
+	// Single batch insert for all feed_execution rows
+	try {
+		pqxx::work fe_txn(*conn);
+		auto stream = pqxx::stream_to::table(
+			fe_txn,
+			{"public", "feed_execution"},
+			{"id", "poll_iteration_id", "agency_id", "is_cache_hit", "program_start_us", "program_end_us", "download_time_us", "status", "error_message"}
+		);
+		int64_t fe_id = 1;
+		for (const auto& fe : feed_executions) {
+			stream.write_row(make_tuple(fe_id++, poll_iteration_id, fe.agency_id, fe.is_cache_hit, fe.program_start_us, fe.program_end_us, fe.download_time_us, fe.status, fe.error_message));
+		}
+		stream.complete();
+		fe_txn.commit();
+	} catch (const exception& e) {
+		cerr << "Error batch inserting feed_executions: " << e.what() << "\n";
+	}
+
 	return 0;
 }
 
@@ -267,7 +309,6 @@ int main(int argc, char* args[]){
 	string PG_PASSWD = e(getenv("POSTGRES_PASSWORD"));
 	string PG_DB = e(getenv("POSTGRES_DB"));
 
-	// Connection string
 	pqxx::connection conn(
 		"host=" + PG_HOST + " "
 		"port=5432 "
@@ -276,16 +317,9 @@ int main(int argc, char* args[]){
 		"password=" + PG_PASSWD + " "
 	);
 
-	if (conn.is_open()) {
-		cout << "Connected to: " << conn.dbname() << "\n";
-    }
-
-	int i = 0 ;
 	while(true){
-		cout<< "Itteration: " << i++ << endl;
 		mainLogic(argc, args, &conn);
 		this_thread::sleep_for(chrono::seconds(15));
-		cout << "========================================" << endl;
 	}
-	
+
 }

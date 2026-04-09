@@ -35,6 +35,10 @@
     <a href="/" class="brand">Locate My Bus</a>
     <div class="header-right">
         <a href="/" class="back-link">← Home</a>
+        <a href="/dash/monitor" class="back-link">Monitor</a>
+        <button id="daemon-restart-btn" class="btn btn-sm" style="background:var(--danger);color:#fff;border:none;">
+            <i class="fa-solid fa-rotate-right me-1"></i>Restart Daemon
+        </button>
         <button id="theme-toggle"></button>
     </div>
 </header>
@@ -106,6 +110,27 @@
 
 </div>
 
+<!-- Restart daemon modal -->
+<div class="modal fade" id="daemonModal" tabindex="-1" aria-labelledby="daemonModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header border-0 pb-0">
+                <h6 class="modal-title" id="daemonModalLabel">Restart Daemon</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body pt-2">
+                <p class="mb-3 small" style="color:var(--text-muted);">This will kill and restart the daemon container. Live vehicle data will pause briefly.</p>
+                <label for="daemon-access-key" class="form-label">Access Key</label>
+                <input type="password" class="form-control" id="daemon-access-key" placeholder="Enter access key">
+            </div>
+            <div class="modal-footer border-0 pt-0">
+                <button type="button" class="btn btn-sm px-3" data-bs-dismiss="modal" style="background:var(--surface-alt);color:var(--text);border:1px solid var(--border);">Cancel</button>
+                <button type="button" class="btn btn-danger btn-sm px-3" id="daemon-confirm-btn">Restart</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- Add agency access key modal -->
 <div class="modal fade" id="addModal" tabindex="-1" aria-labelledby="addModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
@@ -157,10 +182,11 @@
     /* ── Banner ── */
     let bannerTimer = null;
 
-    function showBanner(msg) {
+    function showBanner(msg, type = 'error') {
         const el = document.getElementById('banner');
         document.getElementById('banner-msg').textContent = msg;
-        el.classList.add('show', 'error');
+        el.classList.remove('error', 'success');
+        el.classList.add('show', type);
         clearTimeout(bannerTimer);
         bannerTimer = setTimeout(hideBanner, 6000);
     }
@@ -393,6 +419,37 @@
     });
 
     loadAgencies();
+
+    /* ── Restart daemon ── */
+    const daemonModal = new bootstrap.Modal(document.getElementById('daemonModal'));
+
+    document.getElementById('daemon-restart-btn').addEventListener('click', () => {
+        document.getElementById('daemon-access-key').value = '';
+        daemonModal.show();
+    });
+
+    document.getElementById('daemon-confirm-btn').addEventListener('click', function () {
+        const key = document.getElementById('daemon-access-key').value;
+        const btn = document.getElementById('daemon-confirm-btn');
+        daemonModal.hide();
+        btn.disabled = true;
+
+        fetch('/api/daemon/kill', {
+            method: 'POST',
+            headers: { 'x-access-key': key },
+        })
+            .then(r => {
+                if (r.status === 204) {
+                    showBanner('Daemon restarted successfully.', 'success');
+                } else if (r.status === 401) {
+                    showBanner('Invalid access key.');
+                } else {
+                    return r.json().then(t => { throw new Error(t.error || `Server error ${r.status}`); });
+                }
+            })
+            .catch(err => showBanner(`Failed to restart daemon: ${err.message}`))
+            .finally(() => { btn.disabled = false; });
+    });
 </script>
 <!-- Cloudflare Web Analytics --><script defer src='https://static.cloudflareinsights.com/beacon.min.js' data-cf-beacon='{"token": "0c70f987d14c4ae0987fb02cd4cf302f"}'></script><!-- End Cloudflare Web Analytics -->
 </body>
