@@ -88,3 +88,33 @@ ALTER TABLE public.live_vehicle_position
 ADD COLUMN IF NOT EXISTS head_bearing DOUBLE PRECISION,
 ADD COLUMN IF NOT EXISTS trip_id VARCHAR(45) NOT NULL,
 ADD CONSTRAINT fk_trip FOREIGN KEY (agency_id, trip_id) REFERENCES public.trip (agency_id, id) ON DELETE CASCADE;
+
+CREATE TABLE IF NOT EXISTS public.poll_iteration (
+    id                BIGINT          PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+    started_at        TIMESTAMPTZ     NOT NULL,
+    agency_count      INT             NOT NULL,
+    total_executions  INT             NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS public.feed_execution (
+    id                  BIGINT          NOT NULL,
+    poll_iteration_id   BIGINT          NOT NULL REFERENCES public.poll_iteration (id) ON DELETE CASCADE,
+    agency_id           UUID            NOT NULL REFERENCES public.agency (id) ON DELETE CASCADE,
+    is_cache_hit        BOOLEAN         NOT NULL DEFAULT FALSE,
+    program_start_us    BIGINT          NOT NULL,
+    program_end_us      BIGINT          NOT NULL,
+    execution_time_us   INT             GENERATED ALWAYS AS (CAST(program_end_us - program_start_us AS INT)) STORED,
+    download_time_us    INT,
+    status              VARCHAR(20)     NOT NULL DEFAULT 'success' CHECK (status IN ('success', 'error', 'timeout')),
+    error_message       TEXT,
+    CONSTRAINT pk_feed_execution
+        PRIMARY KEY (poll_iteration_id, id),
+    CONSTRAINT chk_end_after_start
+        CHECK (program_end_us >= program_start_us),
+    CONSTRAINT chk_download_null_on_cache
+        CHECK (is_cache_hit = FALSE OR download_time_us IS NULL)
+);
+
+CREATE INDEX IF NOT EXISTS idx_fe_agency         ON public.feed_execution (agency_id);
+CREATE INDEX IF NOT EXISTS idx_fe_cache_hit      ON public.feed_execution (is_cache_hit);
+CREATE INDEX IF NOT EXISTS idx_fe_execution_time ON public.feed_execution (execution_time_us DESC);

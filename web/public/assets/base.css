@@ -136,6 +136,14 @@ h1, h2, h3, h4, h5, h6 { color: var(--text); }
     border-right: 1px solid var(--border);
     border-bottom: 1px solid var(--border);
 }
+#banner.success {
+    background: var(--surface);
+    color: var(--accent);
+    border-left: 3px solid var(--accent);
+    border-top: 1px solid var(--border);
+    border-right: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+}
 #banner-msg { flex: 1; }
 #banner-close {
     background: none;
