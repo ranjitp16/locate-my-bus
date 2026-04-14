@@ -118,3 +118,12 @@ CREATE TABLE IF NOT EXISTS public.feed_execution (
 CREATE INDEX IF NOT EXISTS idx_fe_agency         ON public.feed_execution (agency_id);
 CREATE INDEX IF NOT EXISTS idx_fe_cache_hit      ON public.feed_execution (is_cache_hit);
 CREATE INDEX IF NOT EXISTS idx_fe_execution_time ON public.feed_execution (execution_time_us DESC);
+
+-- Fix timing columns: INT can overflow for long-running executions (> ~2147 s).
+-- Widen download_time_us to BIGINT; regenerate execution_time_us as BIGINT (generated
+-- columns cannot be altered in-place — must drop and re-add).
+ALTER TABLE public.feed_execution ALTER COLUMN download_time_us TYPE BIGINT;
+DROP INDEX IF EXISTS idx_fe_execution_time;
+ALTER TABLE public.feed_execution DROP COLUMN IF EXISTS execution_time_us;
+ALTER TABLE public.feed_execution ADD COLUMN execution_time_us BIGINT GENERATED ALWAYS AS (program_end_us - program_start_us) STORED;
+CREATE INDEX IF NOT EXISTS idx_fe_execution_time ON public.feed_execution (execution_time_us DESC);
