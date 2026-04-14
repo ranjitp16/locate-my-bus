@@ -118,3 +118,24 @@ body { overflow: hidden; }
 #locate-btn:hover { border-color: var(--accent); color: var(--accent); }
 #locate-btn.active { border-color: #2979ff; color: #2979ff; }
 
+@media (max-width: 480px) {
+    #controls {
+        top: auto;
+        bottom: 16px;
+        right: 8px;
+        left: 8px;
+        width: auto;
+    }
+
+    #controls select,
+    #locate-btn {
+        min-height: 44px;   /* iOS recommended tap target */
+        font-size: 0.9rem;
+    }
+
+    #location-retry-btn {
+        min-height: 44px;
+        padding: 8px 12px;
+    }
+}
+
