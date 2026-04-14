@@ -15,9 +15,14 @@
 #include <unordered_set>
 #include <unordered_map>
 #include <optional>
+#include <atomic>
+#include <csignal>
 
 using namespace std;
 using namespace transit_realtime;
+
+static atomic<bool> g_running{true};
+static void handle_signal(int) { g_running = false; }
 
 const string url_path = "https://gtfs.halifax.ca/realtime/Vehicle/VehiclePositions.pb";
 const string fileName = "./daemon/assets/VehiclePositions.pb";
@@ -168,31 +173,41 @@ int mainLogic(int argc, char* args[], pqxx::connection* conn){
 		return 1;
 	}
 
-	// 3. Launch one async download+parse per unique rt_feed_url.
-	//    feedOwner tracks which agency_id first claimed each URL — that agency
-	//    is the non-cache-hit; all others sharing the URL are cache hits.
-	unordered_map<string, future<DownloadResult>> feedFutures;
-	unordered_map<string, string> feedOwner; // url -> agency_id
+	// 3. Collect unique rt_feed_urls, tracking which agency owns each.
+	//    feedOwner maps url -> agency_id of the first (non-cache-hit) agency.
+	vector<pair<string, string>> uniqueFeeds; // (url, api_key)
+	unordered_map<string, string> feedOwner;  // url -> agency_id
 	for (const auto& agency : agencies) {
-		if (feedFutures.find(agency.rt_feed_url) == feedFutures.end()) {
+		if (feedOwner.find(agency.rt_feed_url) == feedOwner.end()) {
 			feedOwner[agency.rt_feed_url] = agency.id;
-			const string url     = agency.rt_feed_url;
-			const string api_key = agency.api_key;
-			cout << "fetching : " << url << endl;
-			feedFutures.emplace(url, async(launch::async, downloadAndParse, url, api_key));
+			uniqueFeeds.emplace_back(agency.rt_feed_url, agency.api_key);
+			cout << "fetching : " << agency.rt_feed_url << endl;
 		} else {
 			cout << "Re-using feed from : " << feedOwner[agency.rt_feed_url] << endl;
 		}
 	}
 
-	// 4. Resolve all futures before entering the per-agency DB loop
+	// 4. Resolve downloads in bounded batches before the per-agency DB loop.
+	//    Batch size is capped at hardware_concurrency() to avoid unbounded threads.
 	unordered_map<string, DownloadResult> feeds;
-	for (auto& [url, fut] : feedFutures) {
-		try {
-			feeds.emplace(url, fut.get());
-		} catch (const exception& e) {
-			cerr << "Error downloading/parsing feed " << url << ": " << e.what() << "\n";
-			// URL absent from feeds; agencies using it will record an error below
+	size_t maxConcurrent = thread::hardware_concurrency();
+	if (maxConcurrent == 0) maxConcurrent = 4;
+
+	for (size_t batchStart = 0; batchStart < uniqueFeeds.size(); batchStart += maxConcurrent) {
+		size_t batchEnd = min(batchStart + maxConcurrent, uniqueFeeds.size());
+		unordered_map<string, future<DownloadResult>> feedFutures;
+		for (size_t i = batchStart; i < batchEnd; ++i) {
+			const string& url     = uniqueFeeds[i].first;
+			const string& api_key = uniqueFeeds[i].second;
+			feedFutures.emplace(url, async(launch::async, downloadAndParse, url, api_key));
+		}
+		for (auto& [url, fut] : feedFutures) {
+			try {
+				feeds.emplace(url, fut.get());
+			} catch (const exception& e) {
+				cerr << "Error downloading/parsing feed " << url << ": " << e.what() << "\n";
+				// URL absent from feeds; agencies using it will record an error below
+			}
 		}
 	}
 
@@ -356,9 +371,12 @@ int main(int argc, char* args[]){
 		cout << "Connected to: " << conn.dbname() << "\n";
 	}
 
+	signal(SIGTERM, handle_signal);
+	signal(SIGINT,  handle_signal);
+
 	curl_global_init(CURL_GLOBAL_DEFAULT);
 
-	while(true){
+	while(g_running){
 		mainLogic(argc, args, &conn);
 		this_thread::sleep_for(chrono::seconds(15));
 	}

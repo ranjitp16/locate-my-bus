@@ -73,9 +73,9 @@ GTFS-RT protobuf ──► C++ daemon (live_vehicle_position, polls every 15 s)
 Single-file C++ program. The `main()` function opens one persistent `pqxx::connection` and calls `mainLogic()` in an infinite loop with a 15-second sleep.
 
 `mainLogic()` per iteration:
-1. Fetches all agencies from `public.agency` (ordered by `rt_feed_url` so agencies sharing a feed are adjacent).
-2. For each agency, downloads the GTFS-RT protobuf via libcurl — or reuses the previous `FeedMessage` if the `rt_feed_url` is the same as the last iteration (cache by URL comparison).
-3. Loads valid `route_id` and `trip_id` sets from the DB for the agency.
+1. Fetches all agencies from `public.agency`.
+2. Groups work by unique `rt_feed_url`: launches one async libcurl download + protobuf parse per distinct feed URL (in bounded batches capped at `hardware_concurrency()`), then reuses the resolved `FeedMessage` for every agency that references that URL.
+3. For each agency, loads valid `route_id` and `trip_id` sets from the DB and filters the shared feed to vehicles relevant to that agency.
 4. Builds a bulk `INSERT` statement for all matching vehicles, then `DELETE`s the previous positions for that agency and inserts the new batch — all inside a single `pqxx::work` transaction.
 
 SQL is built by hand (string concatenation). There is no ORM. Values are inserted directly into the query string for the bulk insert; use `txn.exec_params` only for parameterised single-row queries.

@@ -303,8 +303,9 @@
       <p class="subtitle">Any GTFS-RT agency &mdash; live vehicle positions on a map</p>
       <p>
         Onboard any GTFS-compatible transit agency, and a C++ daemon fetches live vehicle positions
-        every 30 seconds per agency, upserts them into PostgreSQL, and serves them to a Leaflet.js
-        map in the browser. Dynamic agency and route selectors, pinnable markers, light/dark theme.
+        every 15 seconds, stores them in PostgreSQL, and serves them to a Leaflet.js map in the
+        browser. Dynamic agency and route selectors, pinnable markers, light/dark theme, and a
+        built-in poll monitor dashboard.
       </p>
       <div class="links">
         <a href="https://bus.ranjitpandey.dev">
@@ -337,7 +338,7 @@
         </div>
         <div class="stack-item">
           <h3>C++ daemon</h3>
-          <p>Reads all onboarded agencies from the DB, downloads each GTFS-RT protobuf feed every 30 seconds, and upserts live vehicle positions into PostgreSQL.</p>
+          <p>Reads all onboarded agencies from the DB every 15 seconds. Groups them by unique feed URL, downloads each distinct feed in parallel (bounded by CPU core count), then replaces live vehicle positions in PostgreSQL. Per-poll metrics are recorded for the monitoring dashboard.</p>
         </div>
         <div class="stack-item">
           <h3>PostgreSQL</h3>
@@ -395,12 +396,12 @@
         <div class="step">
           <p class="step-label">$ 05</p>
           <code>make run</code>
-          <p>Daemon polls all onboarded agencies every 30 s and writes live positions to the DB.</p>
+          <p>Daemon polls all onboarded agencies every 15 s and writes live positions to the DB.</p>
         </div>
         <div class="step">
           <p class="step-label">$ 06</p>
           <code>http://localhost:3000/view-map</code>
-          <p>Select an agency and route — buses appear within 30 seconds.</p>
+          <p>Select an agency and route — buses appear within 15 seconds.</p>
         </div>
       </div>
     </section>

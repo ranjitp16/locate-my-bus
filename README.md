@@ -2,7 +2,7 @@
 
 **Live demo: [bus.ranjitpandey.dev](https://bus.ranjitpandey.dev)**
 
-Real-time bus tracking for any GTFS-RT compatible transit agency. A C++ daemon fetches live vehicle position data every 30 seconds per agency, stores it in PostgreSQL, and a Node.js/Express server exposes it to a Leaflet.js map in the browser.
+Real-time bus tracking for any GTFS-RT compatible transit agency. A C++ daemon fetches live vehicle position data every 15 seconds, stores it in PostgreSQL, and a Node.js/Express server exposes it to a Leaflet.js map in the browser.
 
 ![Screenshot](./images/screenshot.png)
 
@@ -14,10 +14,10 @@ Real-time bus tracking for any GTFS-RT compatible transit agency. A C++ daemon f
 GTFS Static Feed (zip)          GTFS-RT Feed (protobuf)
         │                                │
         ▼                                ▼
-  Agency Onboarding (Node.js)    C++ Daemon (every 30s)
-  - Parses agency.txt            - Downloads VehiclePositions.pb
-  - Parses routes.txt            - Parses protobuf feed
-  - Inserts into PostgreSQL      - Upserts into live_vehicle_position
+  Agency Onboarding (Node.js)    C++ Daemon (every 15s)
+  - Parses agency.txt            - Fetches unique feeds in parallel
+  - Parses routes.txt            - Parses protobuf feeds async
+  - Inserts into PostgreSQL      - Replaces live_vehicle_position
         │                                │
         └──────────────┬─────────────────┘
                        ▼
@@ -26,7 +26,9 @@ GTFS Static Feed (zip)          GTFS-RT Feed (protobuf)
                   ├── public.route
                   ├── public.live_vehicle_position
                   ├── public.shape / shape_point
-                  └── public.trip
+                  ├── public.trip
+                  ├── public.poll_iteration
+                  └── public.feed_execution
                        │
                        ▼
            Node.js / Express server
@@ -35,6 +37,7 @@ GTFS Static Feed (zip)          GTFS-RT Feed (protobuf)
            - GET /api/agencies              → JSON
            - POST /api/agencies/add         → onboard agency
            - DELETE /api/agencies/delete/:id
+           - GET /api/dashboard/*           → monitoring stats
            - Serves static frontend
                        │
                        ▼
@@ -99,12 +102,12 @@ DELETE_ACCESS_KEY=<secret>    # required to add/delete agencies
 
 5. Open `http://localhost:3000` and go to **Manage Agencies** to onboard a transit agency by providing its GTFS static and RT feed URLs.
 
-6. Start the daemon (it will poll all agencies stored in the DB every 30 s):
+6. Start the daemon (it will poll all agencies stored in the DB every 15 s):
    ```sh
    make run
    ```
 
-7. Go to **View Map**, select an agency and route — live positions appear within 30 seconds.
+7. Go to **View Map**, select an agency and route — live positions appear within 15 seconds.
 
 ### Docker
 
@@ -124,13 +127,18 @@ make run-docker-web
 
 ## API
 
-| Method   | Path                          | Auth | Description                          |
-|----------|-------------------------------|------|--------------------------------------|
-| `GET`    | `/live/:agency_id/:route_id`  | —    | Live vehicle positions for a route   |
-| `GET`    | `/routes/:agency_id`          | —    | All routes for an agency             |
-| `GET`    | `/api/agencies`               | —    | List all onboarded agencies          |
-| `POST`   | `/api/agencies/add`           | ✓    | Onboard a new agency                 |
-| `DELETE` | `/api/agencies/delete/:id`    | ✓    | Remove an agency and its data        |
+| Method   | Path                              | Auth | Description                              |
+|----------|-----------------------------------|------|------------------------------------------|
+| `GET`    | `/live/:agency_id/:route_id`      | —    | Live vehicle positions for a route       |
+| `GET`    | `/routes/:agency_id`              | —    | All routes for an agency                 |
+| `GET`    | `/api/agencies`                   | —    | List all onboarded agencies              |
+| `POST`   | `/api/agencies/add`               | ✓    | Onboard a new agency                     |
+| `DELETE` | `/api/agencies/delete/:id`        | ✓    | Remove an agency and its data            |
+| `GET`    | `/api/dashboard/stats`            | ✓    | Aggregate poll stats                     |
+| `GET`    | `/api/dashboard/iterations`       | ✓    | Last 50 poll iterations                  |
+| `GET`    | `/api/dashboard/executions/:id`   | ✓    | Per-agency breakdown for an iteration    |
+| `GET`    | `/api/dashboard/analytics`        | ✓    | Feed analytics and slow-feed detection   |
+| `GET`    | `/api/dashboard/latency`          | ✓    | Download latency history per agency      |
 
 Auth-protected routes require the `x-access-key` header to match `DELETE_ACCESS_KEY`.
 
@@ -147,8 +155,7 @@ Auth-protected routes require the `x-access-key` header to match `DELETE_ACCESS_
 ## How It Works
 
 - **Agency onboarding** downloads the GTFS static zip, parses `agency.txt` and `routes.txt`, and inserts them into PostgreSQL in a single transaction.
-- **The daemon** reads all agencies from the DB, fetches their GTFS-RT feed every 30 seconds, and upserts positions into `live_vehicle_position`.
-- **Deduplication** is handled by PostgreSQL's `ON CONFLICT … DO UPDATE`, so the table always holds the latest position per vehicle.
+- **The daemon** reads all agencies from the DB every 15 seconds, groups them by unique `rt_feed_url`, downloads each distinct feed in parallel (bounded by CPU core count), and replaces positions in `live_vehicle_position` with a DELETE + bulk INSERT per agency. Per-poll metrics are written to `poll_iteration` and `feed_execution` for monitoring.
 - **The frontend** dynamically loads agencies and their routes, polls `/live/:agency_id/:route_id` every 15 seconds, and re-renders markers. Click a marker to pin it (the map follows that bus); click the map background to unpin. Map zoom and position are persisted in `localStorage`.
 
 ---
