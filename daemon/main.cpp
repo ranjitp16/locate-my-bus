@@ -62,38 +62,40 @@ stringstream downloadFile(
 	stringstream result;
 
 	curl = curl_easy_init();
-
-	if(curl){
-
-		if(!api_key_for_header.empty()){
-			struct curl_slist* headers = nullptr;
-			headers = curl_slist_append(headers, ("apikey: " + api_key_for_header).c_str());
-			curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-		}
-
-		curl_easy_setopt(curl, CURLOPT_URL, url_path.c_str());
-		curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_data);
-		curl_easy_setopt(curl, CURLOPT_WRITEDATA, &result);
-
-		auto dl_start = chrono::duration_cast<chrono::microseconds>(
-			chrono::system_clock::now().time_since_epoch()
-		).count();
-
-		res = curl_easy_perform(curl);
-
-		auto dl_end = chrono::duration_cast<chrono::microseconds>(
-			chrono::system_clock::now().time_since_epoch()
-		).count();
-
-		out_download_time_us = dl_end - dl_start;
-
-		if(res != CURLE_OK){
-			cerr << "Err downloading the file: " << curl_easy_strerror(res) << endl;
-			curl_easy_cleanup(curl);
-			throw runtime_error("Error downloading the file: " + string(curl_easy_strerror(res)));
-		}
-		curl_easy_cleanup(curl);
+	if (!curl) {
+		throw runtime_error("curl_easy_init() failed");
 	}
+
+	struct curl_slist* headers = nullptr;
+	if(!api_key_for_header.empty()){
+		headers = curl_slist_append(headers, ("apikey: " + api_key_for_header).c_str());
+		curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+	}
+
+	curl_easy_setopt(curl, CURLOPT_URL, url_path.c_str());
+	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_data);
+	curl_easy_setopt(curl, CURLOPT_WRITEDATA, &result);
+
+	auto dl_start = chrono::duration_cast<chrono::microseconds>(
+		chrono::system_clock::now().time_since_epoch()
+	).count();
+
+	res = curl_easy_perform(curl);
+
+	auto dl_end = chrono::duration_cast<chrono::microseconds>(
+		chrono::system_clock::now().time_since_epoch()
+	).count();
+
+	out_download_time_us = dl_end - dl_start;
+
+	curl_slist_free_all(headers);
+
+	if(res != CURLE_OK){
+		cerr << "Err downloading the file: " << curl_easy_strerror(res) << endl;
+		curl_easy_cleanup(curl);
+		throw runtime_error("Error downloading the file: " + string(curl_easy_strerror(res)));
+	}
+	curl_easy_cleanup(curl);
 
 	return result;
 }

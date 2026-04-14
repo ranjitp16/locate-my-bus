@@ -250,6 +250,10 @@
                 errEl.textContent = 'Invalid access key.'; errEl.style.display = '';
                 btn.disabled = false; btn.textContent = 'Unlock'; return;
             }
+            if (!r.ok) {
+                errEl.textContent = `Unable to unlock dashboard. Server returned ${r.status}.`; errEl.style.display = '';
+                btn.disabled = false; btn.textContent = 'Unlock'; return;
+            }
             accessKey = key;
             sessionStorage.setItem(SESSION_KEY, key);
             keyModal.hide();
@@ -292,7 +296,14 @@
     /* ── Raw tab: iterations table ── */
     function loadIterations() {
         authFetch('/api/dashboard/iterations')
-            .then(r => r.json())
+            .then(r => {
+                if (r.status === 401) {
+                    sessionStorage.removeItem(SESSION_KEY); accessKey = null;
+                    keyModal.show(); return Promise.reject('unauthorized');
+                }
+                if (!r.ok) return Promise.reject(r.status);
+                return r.json();
+            })
             .then(rows => {
                 const tbody = document.getElementById('iter-tbody');
                 if (!rows.length) {
@@ -324,7 +335,15 @@
                     return tr;
                 }));
             })
-            .catch(() => {});
+            .catch(err => {
+                if (err === 'unauthorized') return;
+                const td = document.createElement('td');
+                td.colSpan = 7; td.className = 'text-center py-4';
+                td.style.color = 'var(--danger)';
+                td.textContent = 'Failed to load iterations' + (err ? ' (' + err + ')' : '') + '.';
+                const tr = document.createElement('tr'); tr.appendChild(td);
+                document.getElementById('iter-tbody').replaceChildren(tr);
+            });
     }
 
     /* ── Refresh ── */
