@@ -44,6 +44,8 @@ GTFS Static Feed (zip)          GTFS-RT Feed (protobuf)
            Browser (Leaflet.js map)
            - Dynamic agency + route selector
            - Polls /live every 15 seconds
+           - Shows user location; auto-pins nearest bus
+           - Distance to each bus in popup
            - Pinnable markers, light/dark theme
 ```
 
@@ -156,7 +158,7 @@ Auth-protected routes require the `x-access-key` header to match `DELETE_ACCESS_
 
 - **Agency onboarding** downloads the GTFS static zip, parses `agency.txt` and `routes.txt`, and inserts them into PostgreSQL in a single transaction.
 - **The daemon** reads all agencies from the DB every 15 seconds, groups them by unique `rt_feed_url`, downloads each distinct feed in parallel (bounded by CPU core count), and replaces positions in `live_vehicle_position` with a DELETE + bulk INSERT per agency. Per-poll metrics are written to `poll_iteration` and `feed_execution` for monitoring.
-- **The frontend** dynamically loads agencies and their routes, polls `/live/:agency_id/:route_id` every 15 seconds, and re-renders markers. Click a marker to pin it (the map follows that bus); click the map background to unpin. Map zoom and position are persisted in `localStorage`.
+- **The frontend** dynamically loads agencies and their routes, polls `/live/:agency_id/:route_id` every 15 seconds, and re-renders markers. The browser Geolocation API tracks the user's position (shown as a pulsing blue dot); the nearest bus is automatically pinned each poll. Click a marker to manually pin it (map follows that bus and draws its route); click the map background to return to auto-pin. Every bus popup shows its distance from the user via the Haversine formula. Map zoom and position are persisted in `localStorage`.
 
 ---
 
