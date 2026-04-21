@@ -25,6 +25,14 @@
     // Suppress map-level click when a marker was just clicked
     let _suppressMapClick = false;
 
+    // Route animation state
+    let _routeDashLayer  = null;   // LineLayer ref for animated dashes
+    let _routeAnimFrame  = null;   // rAF handle
+    let _dashOffset      = 0;      // current dash offset
+
+    // Currently open popup (at most one at a time)
+    let _openPopup = null;
+
     function _whenReady(fn) {
         if (_ready) fn();
         else _queue.push(fn);
@@ -71,6 +79,24 @@
         return coords;
     }
 
+    function _startRouteAnimation() {
+        if (_routeAnimFrame) cancelAnimationFrame(_routeAnimFrame);
+        _dashOffset = 0;
+        function step() {
+            _dashOffset -= 0.3;
+            if (_dashOffset < -20) _dashOffset += 20;
+            if (_routeDashLayer) _routeDashLayer.setOptions({ strokeDashOffset: _dashOffset });
+            _routeAnimFrame = requestAnimationFrame(step);
+        }
+        _routeAnimFrame = requestAnimationFrame(step);
+    }
+
+    function _stopRouteAnimation() {
+        if (_routeAnimFrame) { cancelAnimationFrame(_routeAnimFrame); _routeAnimFrame = null; }
+        _dashOffset = 0;
+        if (_routeDashLayer) _routeDashLayer.setOptions({ strokeDashOffset: 0 });
+    }
+
     // ── Public API ──────────────────────────────────────────────────────────
 
     window.mapAdapter = {
@@ -98,12 +124,14 @@
                     strokeWidth:   4,
                     strokeOpacity: 0.4,
                 }));
-                _map.layers.add(new atlas.layer.LineLayer(_routeSource, 'route-dash', {
-                    strokeColor:       '#1558d0',
-                    strokeWidth:       4,
-                    strokeOpacity:     0.9,
-                    strokeDashArray:   [12, 8],
-                }));
+                _routeDashLayer = new atlas.layer.LineLayer(_routeSource, 'route-dash', {
+                    strokeColor:      '#1558d0',
+                    strokeWidth:      4,
+                    strokeOpacity:    0.9,
+                    strokeDashArray:  [12, 8],
+                    strokeDashOffset: 0,
+                });
+                _map.layers.add(_routeDashLayer);
 
                 // Route dot DataSource + layer (start/end markers)
                 _routeDotSource = new atlas.source.DataSource();
@@ -169,6 +197,7 @@
                 _busPopups.forEach(function (p) { p.close(); });
                 _busMarkers = [];
                 _busPopups  = [];
+                _openPopup  = null;
 
                 vehicles.forEach(function (v) {
                     const isPinned = v.vehicle_id === pinnedVehicleId;
@@ -206,11 +235,20 @@
 
                     _map.markers.add(marker);
 
-                    // Marker click → open popup immediately + notify app (pin/unpin)
+                    // Marker click → toggle popup + notify app (pin/unpin)
                     _map.events.add('click', marker, function () {
                         _suppressMapClick = true;
                         setTimeout(function () { _suppressMapClick = false; }, 0);
-                        popup.open(_map);
+                        if (_openPopup === popup) {
+                            // Same bus clicked → close popup (unpin)
+                            popup.close();
+                            _openPopup = null;
+                        } else {
+                            // Different bus → close old popup, open new one
+                            if (_openPopup) { _openPopup.close(); _openPopup = null; }
+                            popup.open(_map);
+                            _openPopup = popup;
+                        }
                         if (_markerClickFn) {
                             _markerClickFn({ vehicleId: v.vehicle_id, lat: v.lat, lon: v.lon, tripId: v.trip_id });
                         }
@@ -227,13 +265,15 @@
                         }
                     });
 
-                    // Popup close → stop age counter
+                    // Popup close → stop age counter, clear open popup ref
                     _map.events.add('close', popup, function () {
+                        if (_openPopup === popup) _openPopup = null;
                         if (_markerPopupCloseFn) _markerPopupCloseFn({ vehicleId: v.vehicle_id });
                     });
 
                     if (isPinned) {
                         popup.open(_map);
+                        _openPopup = popup;
                     }
 
                     _busMarkers.push(marker);
@@ -276,14 +316,21 @@
                     new atlas.data.Point(coords[coords.length - 1]),
                     { dotType: 'end' }
                 ));
+
+                _startRouteAnimation();
             });
         },
 
         clearRoute: function () {
             _whenReady(function () {
+                _stopRouteAnimation();
                 if (_routeSource)    _routeSource.clear();
                 if (_routeDotSource) _routeDotSource.clear();
             });
+        },
+
+        closeOpenPopup: function () {
+            if (_openPopup) { _openPopup.close(); _openPopup = null; }
         },
 
         // ── User location ────────────────────────────────────────────────────

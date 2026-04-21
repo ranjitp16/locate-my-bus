@@ -69,6 +69,28 @@ body { overflow: hidden; }
 }
 #details-toggle:hover { color: var(--text); }
 
+/* Azure Maps popup — match app theme */
+.atlas-popup-content-container {
+    background: var(--surface) !important;
+    border-color: var(--border) !important;
+    color: var(--text) !important;
+    border-radius: 8px !important;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.3) !important;
+}
+.atlas-popup-close-button {
+    color: var(--text-muted) !important;
+    background: transparent !important;
+}
+.atlas-popup-close-button:hover {
+    color: var(--text) !important;
+    background: var(--surface-alt) !important;
+    border-radius: 4px !important;
+}
+.atlas-popup-content-container b {
+    color: var(--accent) !important;
+}
+
+/* dash-flow is no longer needed (animation driven by JS), kept for reference */
 @keyframes dash-flow {
     to { stroke-dashoffset: -20; }
 }

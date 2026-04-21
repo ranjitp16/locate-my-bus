@@ -111,6 +111,7 @@
     mapAdapter.onClick(function () {
         pinnedVehicleId = null;
         manuallyPinned  = false;
+        mapAdapter.closeOpenPopup();
         mapAdapter.clearRoute();
     });
 
