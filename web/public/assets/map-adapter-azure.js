@@ -285,14 +285,36 @@
             });
         },
 
-        // ── User location (stubs — implemented in Task 4) ───────────────────
+        // ── User location ────────────────────────────────────────────────────
 
         setUserLocation: function (lat, lng, accuracy) {
-            /* Task 4 */
+            _whenReady(function () {
+                const ring = _circleRing(lat, lng, accuracy);
+
+                if (!_locMarker) {
+                    // First call — create marker and circle
+                    _locMarker = new atlas.HtmlMarker({
+                        htmlContent: '<div class="user-location-marker"><div class="user-location-dot"></div></div>',
+                        position:    [lng, lat],
+                        anchor:      'center',
+                    });
+                    _map.markers.add(_locMarker);
+
+                    _locSource.add(new atlas.data.Feature(new atlas.data.Polygon([ring])));
+                } else {
+                    // Subsequent calls — update position
+                    _locMarker.setOptions({ position: [lng, lat] });
+                    _locSource.clear();
+                    _locSource.add(new atlas.data.Feature(new atlas.data.Polygon([ring])));
+                }
+            });
         },
 
         clearUserLocation: function () {
-            /* Task 4 */
+            _whenReady(function () {
+                if (_locMarker) { _map.markers.remove(_locMarker); _locMarker = null; }
+                if (_locSource) _locSource.clear();
+            });
         },
     };
 
