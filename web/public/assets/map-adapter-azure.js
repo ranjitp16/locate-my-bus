@@ -7,15 +7,13 @@
     let _ready  = false;
     let _queue  = [];  // ops deferred until map is ready
 
-    // DataSources (initialised inside 'ready')
-    let _routeSource    = null;   // LineLayer source for route polyline
-    let _routeDotSource = null;   // BubbleLayer source for start/end dots
-    let _locSource      = null;   // PolygonLayer source for accuracy circle
+    // DataSource for user location accuracy circle (WebGL polygon layer)
+    let _locSource = null;
 
     // Live state
-    let _busMarkers     = [];     // atlas.HtmlMarker[] — current bus markers
-    let _busPopups      = [];     // atlas.Popup[] — one per marker
-    let _locMarker      = null;   // atlas.HtmlMarker — user location dot
+    let _busMarkers = [];   // atlas.HtmlMarker[] — current bus markers
+    let _busPopups  = [];   // atlas.Popup[] — one per marker
+    let _locMarker  = null; // atlas.HtmlMarker — user location dot
 
     // One-time event callbacks (registered by map.html once on page load)
     let _markerClickFn      = null;
@@ -25,13 +23,12 @@
     // Suppress map-level click when a marker was just clicked
     let _suppressMapClick = false;
 
-    // Route animation state
-    let _routeDashLayer  = null;   // LineLayer ref for animated dashes
-    let _routeAnimFrame  = null;   // rAF handle
-    let _dashOffset      = 0;      // current dash offset
-
     // Currently open popup (at most one at a time)
     let _openPopup = null;
+
+    // SVG overlay for route animation (replaces WebGL LineLayer approach)
+    let _routeSvgEl     = null;  // <svg> element
+    let _routeSvgCoords = null;  // [[lng, lat], ...] for reprojection on map move
 
     function _whenReady(fn) {
         if (_ready) fn();
@@ -79,31 +76,76 @@
         return coords;
     }
 
-    // Compute a strokeDashArray that looks like [12,8] shifted forward by `offset` units (0..19)
-    function _dashArrayAtOffset(offset) {
-        var o = ((offset % 20) + 20) % 20;
-        if (o < 12) {
-            return [12 - o, 8, 12, 8];   // partway through a dash
-        } else {
-            return [0, 20 - o, 12, 8];   // partway through a gap
-        }
+    // ── SVG route overlay ──────────────────────────────────────────────────
+    // Azure Maps renders via WebGL. The strokeDashArray layout property cannot
+    // be animated smoothly at runtime (triggers shader recompilation each frame).
+    // Instead, we layer an SVG element directly on the canvas container so the
+    // existing CSS @keyframes dash-flow animation works identically to Leaflet.
+
+    function _svgEl(tag, attrs) {
+        const el = document.createElementNS('http://www.w3.org/2000/svg', tag);
+        for (const k in attrs) el.setAttribute(k, attrs[k]);
+        return el;
     }
 
-    function _startRouteAnimation() {
-        if (_routeAnimFrame) cancelAnimationFrame(_routeAnimFrame);
-        _dashOffset = 0;
-        function step() {
-            _dashOffset = (_dashOffset + 0.4) % 20;
-            if (_routeDashLayer) _routeDashLayer.setOptions({ strokeDashArray: _dashArrayAtOffset(_dashOffset) });
-            _routeAnimFrame = requestAnimationFrame(step);
-        }
-        _routeAnimFrame = requestAnimationFrame(step);
+    function _updateRouteSvg() {
+        if (!_routeSvgEl || !_routeSvgCoords) return;
+        const pixels = _map.positionsToPixels(_routeSvgCoords);
+        if (!pixels || pixels.length < 2) return;
+
+        const d = 'M ' + pixels.map(function (p) {
+            return p[0].toFixed(1) + ',' + p[1].toFixed(1);
+        }).join(' L ');
+
+        _routeSvgEl.querySelector('.route-base').setAttribute('d', d);
+        _routeSvgEl.querySelector('.route-dash').setAttribute('d', d);
+
+        // Update start/end dot positions
+        const s = pixels[0];
+        const e = pixels[pixels.length - 1];
+        _routeSvgEl.querySelector('.route-dot-start').setAttribute('cx', s[0].toFixed(1));
+        _routeSvgEl.querySelector('.route-dot-start').setAttribute('cy', s[1].toFixed(1));
+        _routeSvgEl.querySelector('.route-dot-end').setAttribute('cx', e[0].toFixed(1));
+        _routeSvgEl.querySelector('.route-dot-end').setAttribute('cy', e[1].toFixed(1));
     }
 
-    function _stopRouteAnimation() {
-        if (_routeAnimFrame) { cancelAnimationFrame(_routeAnimFrame); _routeAnimFrame = null; }
-        _dashOffset = 0;
-        if (_routeDashLayer) _routeDashLayer.setOptions({ strokeDashArray: [12, 8] });
+    function _createRouteSvg(coords) {
+        _clearRouteSvg();
+        _routeSvgCoords = coords;
+
+        const svg = _svgEl('svg', {});
+        svg.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:visible;';
+
+        // Base: solid, low opacity
+        const base = _svgEl('path', { fill: 'none', stroke: '#1558d0', 'stroke-width': '4', 'stroke-opacity': '0.4', class: 'route-base' });
+
+        // Dashed: animated via @keyframes dash-flow in map.css
+        const dash = _svgEl('path', { fill: 'none', stroke: '#1558d0', 'stroke-width': '4', 'stroke-dasharray': '12 8', class: 'route-dash' });
+        dash.style.animation = 'dash-flow 1.8s linear infinite';
+
+        // Start dot (red) and end dot (green)
+        const dotStart = _svgEl('circle', { r: '6', fill: '#e53935', stroke: '#fff', 'stroke-width': '2', class: 'route-dot-start' });
+        const dotEnd   = _svgEl('circle', { r: '6', fill: '#2e7d32', stroke: '#fff', 'stroke-width': '2', class: 'route-dot-end' });
+
+        svg.appendChild(base);
+        svg.appendChild(dash);
+        svg.appendChild(dotStart);
+        svg.appendChild(dotEnd);
+
+        _map.getCanvasContainer().appendChild(svg);
+        _routeSvgEl = svg;
+
+        _map.events.add('move', _updateRouteSvg);
+        _updateRouteSvg();
+    }
+
+    function _clearRouteSvg() {
+        if (_routeSvgEl) {
+            _map.events.remove('move', _updateRouteSvg);
+            _routeSvgEl.remove();
+            _routeSvgEl = null;
+        }
+        _routeSvgCoords = null;
     }
 
     // ── Public API ──────────────────────────────────────────────────────────
@@ -125,39 +167,13 @@
             });
 
             _map.events.add('ready', function () {
-                // Route DataSource + layers
-                _routeSource = new atlas.source.DataSource();
-                _map.sources.add(_routeSource);
-                _map.layers.add(new atlas.layer.LineLayer(_routeSource, 'route-base', {
-                    strokeColor:   '#1558d0',
-                    strokeWidth:   4,
-                    strokeOpacity: 0.4,
-                }));
-                _routeDashLayer = new atlas.layer.LineLayer(_routeSource, 'route-dash', {
-                    strokeColor:     '#1558d0',
-                    strokeWidth:     4,
-                    strokeOpacity:   0.9,
-                    strokeDashArray: [12, 8],
-                });
-                _map.layers.add(_routeDashLayer);
-
-                // Route dot DataSource + layer (start/end markers)
-                _routeDotSource = new atlas.source.DataSource();
-                _map.sources.add(_routeDotSource);
-                _map.layers.add(new atlas.layer.BubbleLayer(_routeDotSource, 'route-dots', {
-                    radius:      6,
-                    strokeColor: '#fff',
-                    strokeWidth: 2,
-                    color: ['match', ['get', 'dotType'], 'start', '#e53935', '#2e7d32'],
-                }));
-
-                // User location accuracy circle DataSource + layer
+                // User location accuracy circle (WebGL polygon layer)
                 _locSource = new atlas.source.DataSource();
                 _map.sources.add(_locSource);
                 _map.layers.add(new atlas.layer.PolygonLayer(_locSource, 'loc-circle', {
                     fillColor:   '#2979ff',
                     fillOpacity: 0.1,
-                }), 'route-base'); // insert below route layers
+                }));
 
                 _ready = true;
                 _queue.forEach(function (fn) { fn(); });
@@ -264,11 +280,10 @@
                     });
 
                     // Popup open → start age counter
-                    // Use setTimeout so Azure Maps has time to inject the popup HTML into the DOM
                     _map.events.add('open', popup, function () {
                         if (_markerPopupOpenFn) {
                             setTimeout(function () {
-                                const ageEl = document.querySelector('.atlas-popup-content-container .age-counter');
+                                const ageEl = document.querySelector('.popup-content-container .age-counter');
                                 _markerPopupOpenFn({ vehicleId: v.vehicle_id, startTime: Date.parse(v.timestamp), ageEl: ageEl });
                             }, 50);
                         }
@@ -308,33 +323,15 @@
         drawRoute: function (points) {
             _whenReady(function () {
                 if (!points || !points.length) return;
-                _routeSource.clear();
-                _routeDotSource.clear();
-
-                // Azure Maps GeoJSON uses [lng, lat] order
+                // [lng, lat] order for positionsToPixels
                 const coords = points.map(function (p) { return [p.lon, p.lat]; });
-
-                _routeSource.add(new atlas.data.Feature(new atlas.data.LineString(coords)));
-
-                // Start dot (red) and end dot (green)
-                _routeDotSource.add(new atlas.data.Feature(
-                    new atlas.data.Point(coords[0]),
-                    { dotType: 'start' }
-                ));
-                _routeDotSource.add(new atlas.data.Feature(
-                    new atlas.data.Point(coords[coords.length - 1]),
-                    { dotType: 'end' }
-                ));
-
-                _startRouteAnimation();
+                _createRouteSvg(coords);
             });
         },
 
         clearRoute: function () {
             _whenReady(function () {
-                _stopRouteAnimation();
-                if (_routeSource)    _routeSource.clear();
-                if (_routeDotSource) _routeDotSource.clear();
+                _clearRouteSvg();
             });
         },
 
