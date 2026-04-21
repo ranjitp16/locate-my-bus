@@ -206,10 +206,11 @@
 
                     _map.markers.add(marker);
 
-                    // Marker click → pin/unpin
+                    // Marker click → open popup immediately + notify app (pin/unpin)
                     _map.events.add('click', marker, function () {
                         _suppressMapClick = true;
                         setTimeout(function () { _suppressMapClick = false; }, 0);
+                        popup.open(_map);
                         if (_markerClickFn) {
                             _markerClickFn({ vehicleId: v.vehicle_id, lat: v.lat, lon: v.lon, tripId: v.trip_id });
                         }
