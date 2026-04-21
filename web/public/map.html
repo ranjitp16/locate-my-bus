@@ -530,11 +530,13 @@
     (function () {
         var banner = document.getElementById('bmc-banner');
         var closeBtn = document.getElementById('bmc-banner-close');
-        if (localStorage.getItem('bmc-banner-dismissed')) return;
+        var EXPIRE_MS = 12 * 60 * 60 * 1000; // 12 hours
+        var dismissed = parseInt(localStorage.getItem('bmc-banner-dismissed'), 10);
+        if (dismissed && Date.now() - dismissed < EXPIRE_MS) return;
         banner.classList.remove('hidden');
         closeBtn.addEventListener('click', function () {
             banner.classList.add('hidden');
-            localStorage.setItem('bmc-banner-dismissed', '1');
+            localStorage.setItem('bmc-banner-dismissed', String(Date.now()));
         });
     })();
 </script>
