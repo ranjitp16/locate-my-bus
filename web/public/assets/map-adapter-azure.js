@@ -132,7 +132,14 @@
         svg.appendChild(dotStart);
         svg.appendChild(dotEnd);
 
-        _map.getCanvasContainer().appendChild(svg);
+        // Insert before the marker-collection-container so HtmlMarkers render on top
+        const container = _map.getCanvasContainer();
+        const markerContainer = container.querySelector('.marker-collection-container');
+        if (markerContainer) {
+            container.insertBefore(svg, markerContainer);
+        } else {
+            container.appendChild(svg);
+        }
         _routeSvgEl = svg;
 
         _map.events.add('move', _updateRouteSvg);

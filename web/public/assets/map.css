@@ -89,6 +89,13 @@ body { overflow: hidden; }
 .popup-content-container b {
     color: var(--accent) !important;
 }
+/* Arrow caret — border-color on container drives the triangle color */
+.popup-container {
+    border-color: var(--surface) !important;
+}
+.popup-arrow {
+    border-top-color: var(--surface) !important;
+}
 
 /* dash-flow is no longer needed (animation driven by JS), kept for reference */
 @keyframes dash-flow {
