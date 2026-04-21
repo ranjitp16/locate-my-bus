@@ -253,14 +253,36 @@
             _markerPopupCloseFn = fn;
         },
 
-        // ── Route shape (stubs — implemented in Task 3) ─────────────────────
+        // ── Route shape ──────────────────────────────────────────────────────
 
         drawRoute: function (points) {
-            /* Task 3 */
+            _whenReady(function () {
+                if (!points || !points.length) return;
+                _routeSource.clear();
+                _routeDotSource.clear();
+
+                // Azure Maps GeoJSON uses [lng, lat] order
+                const coords = points.map(function (p) { return [p.lon, p.lat]; });
+
+                _routeSource.add(new atlas.data.Feature(new atlas.data.LineString(coords)));
+
+                // Start dot (red) and end dot (green)
+                _routeDotSource.add(new atlas.data.Feature(
+                    new atlas.data.Point(coords[0]),
+                    { dotType: 'start' }
+                ));
+                _routeDotSource.add(new atlas.data.Feature(
+                    new atlas.data.Point(coords[coords.length - 1]),
+                    { dotType: 'end' }
+                ));
+            });
         },
 
         clearRoute: function () {
-            /* Task 3 */
+            _whenReady(function () {
+                if (_routeSource)    _routeSource.clear();
+                if (_routeDotSource) _routeDotSource.clear();
+            });
         },
 
         // ── User location (stubs — implemented in Task 4) ───────────────────
