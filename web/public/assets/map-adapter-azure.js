@@ -163,7 +163,83 @@
         // ── Bus markers (stubs — implemented in Task 2) ─────────────────────
 
         updateBusMarkers: function (vehicles, pinnedVehicleId, userLat, userLng) {
-            /* Task 2 */
+            _whenReady(function () {
+                // Remove old markers and popups
+                _busMarkers.forEach(function (m) { _map.markers.remove(m); });
+                _busPopups.forEach(function (p) { p.close(); });
+                _busMarkers = [];
+                _busPopups  = [];
+
+                vehicles.forEach(function (v) {
+                    const isPinned = v.vehicle_id === pinnedVehicleId;
+                    const deg = (v.head_bearing != null && Number.isFinite(v.head_bearing))
+                        ? v.head_bearing + 90 : 0;
+
+                    const age = Math.round((Date.now() - Date.parse(v.timestamp)) / 1000);
+                    const distLine = (userLat != null)
+                        ? ('<br><b>Distance:</b> ' + (function () {
+                            const d = _haversineMeters(userLat, userLng, v.lat, v.lon);
+                            return d < 1000 ? Math.round(d) + 'm' : (d / 1000).toFixed(1) + 'km';
+                        }()) + ' away')
+                        : '';
+
+                    const popupContent =
+                        '<b>Trip:</b> '    + _escapeHtml(v.trip_id)    + '<br>' +
+                        '<b>Route:</b> '   + _escapeHtml(v.route_id)   + '<br>' +
+                        '<b>Vehicle:</b> ' + _escapeHtml(v.vehicle_id) + '<br>' +
+                        '<b>Speed:</b> '   + (v.speed != null ? _escapeHtml(v.speed) : '—') + ' m/s<br>' +
+                        '<b>Bearing:</b> ' + (v.head_bearing != null ? _escapeHtml(v.head_bearing) + '°' : '—') + '<br>' +
+                        '<b>Updated:</b> <span class="age-counter">' + age + '</span>s ago' +
+                        distLine;
+
+                    const popup = new atlas.Popup({
+                        content:     '<div style="padding:6px 8px;font-size:0.82rem;line-height:1.6;">' + popupContent + '</div>',
+                        position:    [v.lon, v.lat],
+                        pixelOffset: [0, -30],
+                    });
+
+                    const marker = new atlas.HtmlMarker({
+                        htmlContent: '<div style="transform:rotate(' + deg + 'deg);transform-origin:center;font-size:24px;cursor:pointer;">🚌</div>',
+                        position:    [v.lon, v.lat],
+                        anchor:      'center',
+                    });
+
+                    _map.markers.add(marker);
+
+                    // Marker click → pin/unpin
+                    _map.events.add('click', marker, function () {
+                        _suppressMapClick = true;
+                        setTimeout(function () { _suppressMapClick = false; }, 0);
+                        if (_markerClickFn) {
+                            _markerClickFn({ vehicleId: v.vehicle_id, lat: v.lat, lon: v.lon, tripId: v.trip_id });
+                        }
+                    });
+
+                    // Popup open → start age counter
+                    // Use setTimeout so Azure Maps has time to inject the popup HTML into the DOM
+                    _map.events.add('open', popup, function () {
+                        if (_markerPopupOpenFn) {
+                            setTimeout(function () {
+                                const ageEl = document.querySelector('.atlas-popup-content-container .age-counter');
+                                _markerPopupOpenFn({ vehicleId: v.vehicle_id, startTime: Date.parse(v.timestamp), ageEl: ageEl });
+                            }, 50);
+                        }
+                    });
+
+                    // Popup close → stop age counter
+                    _map.events.add('close', popup, function () {
+                        if (_markerPopupCloseFn) _markerPopupCloseFn({ vehicleId: v.vehicle_id });
+                    });
+
+                    if (isPinned) {
+                        popup.open(_map);
+                        marker.togglePopup();
+                    }
+
+                    _busMarkers.push(marker);
+                    _busPopups.push(popup);
+                });
+            });
         },
 
         onMarkerClick: function (fn) {
