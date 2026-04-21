@@ -160,7 +160,7 @@
             });
         },
 
-        // ── Bus markers (stubs — implemented in Task 2) ─────────────────────
+        // ── Bus markers ──────────────────────────────────────────────────────
 
         updateBusMarkers: function (vehicles, pinnedVehicleId, userLat, userLng) {
             _whenReady(function () {
@@ -233,7 +233,6 @@
 
                     if (isPinned) {
                         popup.open(_map);
-                        marker.togglePopup();
                     }
 
                     _busMarkers.push(marker);
