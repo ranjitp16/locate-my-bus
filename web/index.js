@@ -70,6 +70,7 @@ app.use(helmet({
             ],
             connectSrc: [
                 "'self'",
+                "https://atlas.microsoft.com",
                 "https://cdn.jsdelivr.net",
                 "https://www.googletagmanager.com",
                 "https://www.google-analytics.com",

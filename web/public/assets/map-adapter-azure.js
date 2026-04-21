@@ -242,7 +242,7 @@
                     if (typeof url === 'string' && url.indexOf('atlas.microsoft.com') !== -1) {
                         var u = new URL(url);
                         u.searchParams.delete('subscription-key');
-                        return { url: '/api/azure-maps' + u.pathname + u.search };
+                        return { url: window.location.origin + '/api/azure-maps' + u.pathname + u.search };
                     }
                     return { url: url };
                 },
