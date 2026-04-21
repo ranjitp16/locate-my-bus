@@ -7,7 +7,7 @@
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-7KKXW54Z0W"></script>
     <script src="/assets/analytics.js"></script>
     <title>Live Map — Locate My Bus</title>
-    <link rel="stylesheet" href="/leaflet/leaflet.css">
+    <link rel="stylesheet" href="https://atlas.microsoft.com/sdk/javascript/mapcontrol/3/atlas.min.css" />
     <link
         rel="stylesheet"
         href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
@@ -62,7 +62,8 @@
     </div>
 </div>
 
-<script src="/leaflet/leaflet.js"></script>
+<script src="https://atlas.microsoft.com/sdk/javascript/mapcontrol/3/atlas.min.js"></script>
+<script src="/assets/map-adapter-azure.js"></script>
 <script>
     /* ── Theme toggle ── */
     (function () {
@@ -79,47 +80,65 @@
         applyTheme(document.documentElement.getAttribute('data-theme') || 'light');
     })();
 
-    /* ── HTML escaping ── */
-    function escapeHtml(value) {
-        if (value === null || value === undefined) return '';
-        return String(value)
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;')
-            .replace(/'/g, '&#39;');
-    }
-
     /* ── Map ── */
-    const map = L.map('map', { zoomControl: true }).setView([44.6488, -63.5752], 13);
-
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '&copy; OpenStreetMap contributors',
-    }).addTo(map);
-
-    function makeBusIcon(head_bearing, pinned) {
-        // Icon faces LEFT (west = 90° aka -90°), so add 90° to align with bearing
-        const deg    = (head_bearing != null && Number.isFinite(head_bearing)) ? head_bearing + 90 : 0;
-        return L.divIcon({
-            html: `<div style="transform:rotate(${deg}deg);transform-origin:center;font-size:24px;">
-                    🚌
-                </div>`,
-            className: '',
-            iconSize: [24, 24],
-            iconAnchor: [12, 12],
-        });
-    }
-
-    let markers = [];
     let ageTimer = null;
     let pollTimer = null;
     let countdownTimer = null;
     let pinnedVehicleId = null;
     let manuallyPinned = false;
-    let routeLayers = [];
     let userLat = null;
     let userLng = null;
     const POLL_INTERVAL = 15000;
+
+    // ── Init Azure Maps adapter ──
+    // Read saved position before init so the map opens at the right place
+    const savedZoom = parseInt(localStorage.getItem('map-zoom'), 10);
+    const savedLat  = parseFloat(localStorage.getItem('map-lat'));
+    const savedLon  = parseFloat(localStorage.getItem('map-lon'));
+    let hasSavedPosition = Number.isFinite(savedZoom) && Number.isFinite(savedLat) && Number.isFinite(savedLon);
+
+    mapAdapter.init('map', {
+        center: hasSavedPosition ? { lat: savedLat, lng: savedLon } : { lat: 44.6488, lng: -63.5752 },
+        zoom:   hasSavedPosition ? savedZoom : 13,
+    });
+
+    mapAdapter.onMoveEnd(function ({ lat, lng, zoom }) {
+        localStorage.setItem('map-zoom', zoom);
+        localStorage.setItem('map-lat', lat);
+        localStorage.setItem('map-lon', lng);
+    });
+
+    mapAdapter.onClick(function () {
+        pinnedVehicleId = null;
+        manuallyPinned  = false;
+        mapAdapter.clearRoute();
+    });
+
+    mapAdapter.onMarkerClick(function ({ vehicleId, lat, lon, tripId }) {
+        if (pinnedVehicleId === vehicleId) {
+            pinnedVehicleId = null;
+            manuallyPinned  = false;
+            mapAdapter.clearRoute();
+        } else {
+            pinnedVehicleId = vehicleId;
+            manuallyPinned  = true;
+            mapAdapter.setView(lat, lon, mapAdapter.getZoom(), true);
+            drawRoute(agencySelect.value, tripId);
+        }
+    });
+
+    mapAdapter.onMarkerPopupOpen(function ({ vehicleId, startTime, ageEl }) {
+        clearInterval(ageTimer);
+        if (!ageEl) return;
+        ageTimer = setInterval(function () {
+            ageEl.textContent = String(Math.round((Date.now() - startTime) / 1000));
+        }, 1000);
+    });
+
+    mapAdapter.onMarkerPopupClose(function () {
+        clearInterval(ageTimer);
+        ageTimer = null;
+    });
 
     function haversineMeters(lat1, lng1, lat2, lng2) {
         const R = 6371000;
@@ -132,8 +151,7 @@
     }
 
     function clearRoute() {
-        routeLayers.forEach(l => l.remove());
-        routeLayers = [];
+        mapAdapter.clearRoute();
     }
 
     function drawRoute(agencyId, tripId) {
@@ -143,19 +161,10 @@
             .then(response => {
                 const points = response.rows;
                 if (!points.length) return;
-                const latlngs = points
+                const sorted = points
                     .sort((a, b) => a.pt_sequence - b.pt_sequence)
-                    .map(p => [p.pt_lat, p.pt_lon]);
-
-                const base = L.polyline(latlngs, { color: '#1558d0', weight: 4, opacity: 0.4 }).addTo(map);
-
-                const dashes = L.polyline(latlngs, { color: '#1558d0', weight: 4, opacity: 0.9, dashArray: '12 8' }).addTo(map);
-                dashes.getElement().style.animation = 'dash-flow 1.8s linear infinite';
-
-                const startDot = L.circleMarker(latlngs[0], { radius: 6, color: '#fff', weight: 2, fillColor: '#e53935', fillOpacity: 1 }).addTo(map);
-                const endDot   = L.circleMarker(latlngs[latlngs.length - 1], { radius: 6, color: '#fff', weight: 2, fillColor: '#2e7d32', fillOpacity: 1 }).addTo(map);
-
-                routeLayers.push(base, dashes, startDot, endDot);
+                    .map(p => ({ lat: p.pt_lat, lon: p.pt_lon }));
+                mapAdapter.drawRoute(sorted);
             })
             .catch(err => console.error('Shape fetch failed:', err));
     }
@@ -182,34 +191,18 @@
     const agencySelect = document.getElementById('agency-select');
     const routeSelect  = document.getElementById('route-select');
 
-    /* ── Persist zoom ── */
-    const savedZoom = parseInt(localStorage.getItem('map-zoom'), 10);
-    const savedLat  = parseFloat(localStorage.getItem('map-lat'));
-    const savedLon  = parseFloat(localStorage.getItem('map-lon'));
-    let hasSavedPosition = Number.isFinite(savedZoom) && Number.isFinite(savedLat) && Number.isFinite(savedLon);
-    if (hasSavedPosition) {
-        map.setView([savedLat, savedLon], savedZoom);
-    }
-    map.on('moveend zoomend', () => {
-        const c = map.getCenter();
-        localStorage.setItem('map-zoom', map.getZoom());
-        localStorage.setItem('map-lat', c.lat);
-        localStorage.setItem('map-lon', c.lng);
-    });
-
     let hasAutocentered = false;
 
     /* ── Clear & redraw markers ── */
     function drawVehicles(vehicles) {
-        markers.forEach(m => m.remove());
-        markers = [];
-
-        if (!vehicles.length) return;
+        if (!vehicles.length) {
+            mapAdapter.updateBusMarkers([], null, userLat, userLng);
+            return;
+        }
 
         // Auto-pin nearest bus to user if no manual pin
         if (userLat !== null && !manuallyPinned) {
-            let nearest = null;
-            let minDist = Infinity;
+            let nearest = null, minDist = Infinity;
             vehicles.forEach(v => {
                 const d = haversineMeters(userLat, userLng, v.lat, v.lon);
                 if (d < minDist) { minDist = d; nearest = v; }
@@ -221,81 +214,21 @@
         }
 
         const pinned = vehicles.find(v => v.vehicle_id === pinnedVehicleId);
-
         if (pinned) {
-            // Keep pinned bus centered, don't touch zoom
-            map.setView([pinned.lat, pinned.lon], map.getZoom(), { animate: true });
+            mapAdapter.setView(pinned.lat, pinned.lon, mapAdapter.getZoom(), true);
         } else if (!hasAutocentered && !hasSavedPosition) {
             const avgLat = vehicles.reduce((s, v) => s + v.lat, 0) / vehicles.length;
             const avgLon = vehicles.reduce((s, v) => s + v.lon, 0) / vehicles.length;
-            map.setView([avgLat, avgLon], 13);
+            mapAdapter.setView(avgLat, avgLon, 13);
             hasAutocentered = true;
         }
 
-        vehicles.forEach(v => {
-            const isPinned = v.vehicle_id === pinnedVehicleId;
-            const age = Math.round((Date.now() - Date.parse(v.timestamp)) / 1000);
-            const distLine = (userLat !== null)
-                ? (() => {
-                    const d = haversineMeters(userLat, userLng, v.lat, v.lon);
-                    return `<br><b>Distance:</b> ${d < 1000 ? Math.round(d) + 'm' : (d / 1000).toFixed(1) + 'km'} away`;
-                })()
-                : '';
-            const popup = L.popup({ offset: [0, -28], autoPan: false })
-                .setContent(
-                    `<b>Trip:</b> ${escapeHtml(v.trip_id)}<br>` +
-                    `<b>Route:</b> ${escapeHtml(v.route_id)}<br>` +
-                    `<b>Vehicle:</b> ${escapeHtml(v.vehicle_id)}<br>` +
-                    `<b>Speed:</b> ${v.speed != null ? escapeHtml(v.speed) : '—'} m/s<br>` +
-                    `<b>Bearing:</b> ${v.head_bearing != null ? escapeHtml(v.head_bearing) + '°' : '—'}<br>` +
-                    `<b>Updated:</b> <span class="age-counter">${age}</span>s ago` +
-                    distLine
-                );
-
-            const marker = L.marker([v.lat, v.lon], { icon: makeBusIcon(v.head_bearing, isPinned) })
-                .addTo(map)
-                .bindPopup(popup);
-
-            marker.on('click', () => {
-                if (pinnedVehicleId === v.vehicle_id) {
-                    pinnedVehicleId = null;
-                    manuallyPinned = false;
-                    clearRoute();
-                } else {
-                    pinnedVehicleId = v.vehicle_id;
-                    manuallyPinned = true;
-                    map.setView([v.lat, v.lon], map.getZoom(), { animate: true });
-                    drawRoute(agencySelect.value, v.trip_id);
-                }
-            });
-
-            marker.on('popupopen', () => {
-                clearInterval(ageTimer);
-                const startTime = Date.parse(v.timestamp);
-                const ageEl = popup.getElement().querySelector('.age-counter');
-                ageTimer = setInterval(() => {
-                    ageEl.textContent = String(Math.round((Date.now() - startTime) / 1000));
-                }, 1000);
-            });
-
-            marker.on('popupclose', () => {
-                clearInterval(ageTimer);
-                ageTimer = null;
-            });
-
-            if (isPinned) marker.openPopup();
-
-            markers.push(marker);
-        });
+        mapAdapter.updateBusMarkers(vehicles, pinnedVehicleId, userLat, userLng);
     }
-
-    /* ── Click map background to unpin ── */
-    map.on('click', () => { pinnedVehicleId = null; manuallyPinned = false; clearRoute(); });
 
     /* ── User location ── */
     let locationWatchId = null;
     let locationMarker  = null;
-    let locationCircle  = null;
     const locateBtn       = document.getElementById('locate-btn');
     const locationErrorEl = document.getElementById('location-error');
     const locationErrorMsg = document.getElementById('location-error-msg');
@@ -314,8 +247,8 @@
             navigator.geolocation.clearWatch(locationWatchId);
             locationWatchId = null;
         }
-        if (locationMarker) { locationMarker.remove(); locationMarker = null; }
-        if (locationCircle) { locationCircle.remove(); locationCircle = null; }
+        mapAdapter.clearUserLocation();
+        locationMarker = null;
         userLat = null;
         userLng = null;
         locateBtn.classList.remove('active');
@@ -328,22 +261,13 @@
         userLng = lng;
         hideLocationError();
 
-        if (!locationMarker) {
-            const icon = L.divIcon({
-                html: '<div class="user-location-marker"><div class="user-location-dot"></div></div>',
-                className: '',
-                iconSize: [16, 16],
-                iconAnchor: [8, 8],
-            });
-            locationMarker = L.marker([lat, lng], { icon, zIndexOffset: 500 })
-                .addTo(map)
-                .bindPopup('You are here');
-            locationCircle = L.circle([lat, lng], { radius: accuracy, color: '#2979ff', weight: 1, fillColor: '#2979ff', fillOpacity: 0.1 }).addTo(map);
-            map.setView([lat, lng], map.getZoom(), { animate: true });
+        const firstTime = !locationMarker;
+        mapAdapter.setUserLocation(lat, lng, accuracy);
+        locationMarker = true; // used only as a flag — adapter owns the actual objects
+
+        if (firstTime) {
+            mapAdapter.setView(lat, lng, mapAdapter.getZoom(), true);
             locateBtn.textContent = '◎ My location';
-        } else {
-            locationMarker.setLatLng([lat, lng]);
-            locationCircle.setLatLng([lat, lng]).setRadius(accuracy);
         }
     }
 

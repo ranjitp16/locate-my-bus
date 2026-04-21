@@ -42,6 +42,7 @@ app.use(helmet({
                 "'self'",
                 "https://cdn.jsdelivr.net",
                 "'unsafe-inline'",
+                "https://atlas.microsoft.com",
                 "https://www.googletagmanager.com",
                 "https://static.cloudflareinsights.com"
             ],
@@ -49,12 +50,14 @@ app.use(helmet({
                 "'self'",
                 "https://cdn.jsdelivr.net",
                 "https://cdnjs.cloudflare.com",
+                "https://atlas.microsoft.com",
                 "'unsafe-inline'"
             ],
             fontSrc: [
                 "'self'",
                 "https://cdn.jsdelivr.net",
-                "https://cdnjs.cloudflare.com"
+                "https://cdnjs.cloudflare.com",
+                "https://atlas.microsoft.com"
             ],
             imgSrc: [
                 "'self'",
@@ -67,12 +70,17 @@ app.use(helmet({
             ],
             connectSrc: [
                 "'self'",
+                "https://atlas.microsoft.com",
                 "https://cdn.jsdelivr.net",
                 "https://www.googletagmanager.com",
                 "https://www.google-analytics.com",
                 "https://*.google-analytics.com",
                 "https://cloudflareinsights.com",
                 "https://*.cloudflareinsights.com",
+            ],
+            workerSrc: [
+                "'self'",
+                "blob: https://atlas.microsoft.com"
             ]
         },
     },
@@ -310,7 +318,7 @@ app.get('/api/dashboard/analytics', authMiddleware, async (req, res) => {
             summary: {
                 ...summaryRes.rows[0],
                 avg_cycle_seconds: cycleRes.rows[0]?.avg_cycle_seconds ?? null,
-                slow_incidents:    slowRes.rows[0]?.slow_incidents    ?? 0,
+                slow_incidents: slowRes.rows[0]?.slow_incidents ?? 0,
             }
         });
     } catch (err) {
