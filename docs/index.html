@@ -303,10 +303,11 @@
       <p class="subtitle">Any GTFS-RT agency &mdash; live vehicle positions on a map</p>
       <p>
         Onboard any GTFS-compatible transit agency, and a C++ daemon fetches live vehicle positions
-        every 15 seconds, stores them in PostgreSQL, and serves them to a Leaflet.js map in the
-        browser. Your location is tracked in real-time — the nearest bus is automatically pinned
-        and its distance shown. Dynamic agency and route selectors, pinnable markers, light/dark
-        theme, and a built-in poll monitor dashboard.
+        every 15 seconds, stores them in PostgreSQL, and serves them to an Azure Maps browser client.
+        Your location is tracked in real-time — the nearest bus is automatically pinned and its route
+        drawn with animated SVG overlay. The pinned bus animates smoothly along the route between
+        polls. Dynamic agency and route selectors, pinnable markers, light/dark theme, and a built-in
+        poll monitor dashboard.
       </p>
       <div class="links">
         <a href="https://bus.ranjitpandey.dev">
@@ -350,8 +351,8 @@
           <p>Exposes <code>GET /live/:agency_id/:route_id</code> for live positions, <code>GET /routes/:agency_id</code> for route lists, and a CRUD API for agencies. Write operations require an <code>x-access-key</code> header.</p>
         </div>
         <div class="stack-item">
-          <h3>Leaflet.js map</h3>
-          <p>Dynamic agency and route selectors populate from the API. Polls every 15 seconds. The browser Geolocation API tracks your position as a pulsing blue dot — the nearest bus is auto-pinned each poll and its route drawn. Every bus popup shows its distance from you. Click a marker to manually pin it; click the map background to return to auto-pin. Light/dark theme and zoom position persist across sessions.</p>
+          <h3>Azure Maps (SDK v3)</h3>
+          <p>Dynamic agency and route selectors populate from the API. Polls every 15 seconds. The browser Geolocation API tracks your position as a pulsing blue dot — the nearest bus is auto-pinned each poll and its route drawn as an animated SVG overlay. The pinned bus animates smoothly along the route shape between polls. Every bus popup shows its distance from you. Click a marker to manually pin it; click the map background to return to auto-pin. Light/dark theme and zoom position persist across sessions.</p>
         </div>
       </div>
     </section>
@@ -366,7 +367,7 @@
         <span class="tag">PostgreSQL</span>
         <span class="tag">Node.js</span>
         <span class="tag">Express</span>
-        <span class="tag">Leaflet.js</span>
+        <span class="tag">Azure Maps SDK v3</span>
         <span class="tag">Bootstrap 5</span>
         <span class="tag">Docker</span>
         <span class="tag">Dev Containers</span>

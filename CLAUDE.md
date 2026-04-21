@@ -77,7 +77,7 @@ GTFS-RT protobuf ──► C++ daemon (live_vehicle_position, polls every 15 s)
                            │
                     Node.js/Express (port 3000)
                            │
-                    Browser (Leaflet.js, polls /live every 15 s)
+                    Browser (Azure Maps SDK v3, polls /live every 15 s)
 ```
 
 ### Daemon (`daemon/main.cpp`)
@@ -110,13 +110,18 @@ Express 5, single file. Uses a `pg.Pool` for all queries. No ORM.
 
 ### Frontend (`web/public/`)
 
-- `map.html` — Leaflet.js map; polls `/live/:agency_id/:route_id` every 15 s; marker click pins the map to that bus; zoom/center persisted in `localStorage`; light/dark theme via `data-theme` on `<html>` stored in `localStorage`. Shows route shape polyline via `/api/shape/:agency_id/:trip_id` when a bus is pinned. Auto-pins nearest bus when user location is active.
-- `assets/index.html` — Azure Maps variant of the map (served at `/map`).
+The map uses **Azure Maps SDK v3** via a thin adapter pattern:
+
+- `map.html` — main map page; all map calls go through `window.mapAdapter`; polls `/live/:agency_id/:route_id` every 15 s; marker click pins the map to that bus; zoom/center persisted in `localStorage`; light/dark theme via `data-theme` on `<html>` stored in `localStorage`. Shows route shape polyline via `/api/shape/:agency_id/:trip_id` when a bus is pinned. Auto-pins nearest bus when user location is active.
+- `assets/map-adapter-azure.js` — IIFE that exposes `window.mapAdapter` with 14 methods (`init`, `setView`, `getZoom`, `onClick`, `onMoveEnd`, `updateBusMarkers`, `onMarkerClick`, `onMarkerPopupOpen`, `onMarkerPopupClose`, `drawRoute`, `clearRoute`, `closeOpenPopup`, `setUserLocation`, `clearUserLocation`). Handles all Azure Maps SDK calls internally — `map.html` never calls Atlas APIs directly.
+  - Bus markers are `atlas.HtmlMarker` instances reused across polls (keyed by `vehicle_id`) so the pinned bus can animate along the route shape via `requestAnimationFrame`.
+  - Route shape is rendered as an SVG overlay (not a WebGL layer) to allow CSS `stroke-dasharray` animation; reprojected on each map `move` event via `map.positionsToPixels()`.
+  - At most one popup is open at a time (`_openPopup` state); popup content is preserved (not replaced) across polls for the pinned bus so the live age counter DOM reference stays valid.
 - `addAgency.html` — agency management UI; access key stored in `sessionStorage` as `dash-access-key`.
 - `dashboard.html` — ops dashboard; served at `/dash/monitor`.
-- Bootstrap 5.3.3 + Font Awesome 6.5.1 loaded from CDN with SRI hashes; Leaflet served locally from `node_modules/leaflet/dist` at `/leaflet`.
+- Bootstrap 5.3.3 + Font Awesome 6.5.1 loaded from CDN with SRI hashes.
 - Never use `innerHTML` with user-supplied data — always use DOM APIs or `textContent`.
-- CSP (in `helmet` config) allows `atlas.microsoft.com` for Azure Maps scripts, styles, fonts, images, and connections.
+- CSP (in `helmet` config) allows `atlas.microsoft.com` for Azure Maps scripts, styles, fonts, images, and connections; `workerSrc` includes `blob:` for MapLibre GL workers.
 
 ### Database (`db/schema/init.sql`)
 
