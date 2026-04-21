@@ -37,6 +37,10 @@
 
 <div id="map">
     <div id="controls">
+        <div id="controls-header">
+            <div id="poll-timer">polling in: —</div>
+            <button id="controls-toggle" title="Collapse controls">▾</button>
+        </div>
         <select id="agency-select" disabled>
             <option value="">Loading agencies…</option>
         </select>
@@ -47,7 +51,6 @@
             <input type="checkbox" id="running-only" checked>
             Running routes only
         </label>
-        <div id="poll-timer" style="font-size:0.72rem;color:var(--text);opacity:0.65;text-align:right;">polling in: —</div>
         <button id="locate-btn" title="Show my location on the map">◎ Show my location</button>
         <div id="location-error" role="alert" aria-live="assertive" aria-atomic="true" style="display:none;font-size:0.72rem;color:#e53935;flex-direction:column;gap:4px;">
             <span id="location-error-msg"></span>
@@ -78,6 +81,22 @@
             applyTheme(next);
         });
         applyTheme(document.documentElement.getAttribute('data-theme') || 'light');
+    })();
+
+    /* ── Controls collapse ── */
+    (function () {
+        const toggle   = document.getElementById('controls-toggle');
+        const controls = document.getElementById('controls');
+        function setCollapsed(on) {
+            controls.classList.toggle('collapsed', on);
+            toggle.textContent = on ? '▸' : '▾';
+            toggle.title = on ? 'Expand controls' : 'Collapse controls';
+            localStorage.setItem('controls-collapsed', on ? '1' : '0');
+        }
+        toggle.addEventListener('click', function () {
+            setCollapsed(!controls.classList.contains('collapsed'));
+        });
+        setCollapsed(localStorage.getItem('controls-collapsed') === '1');
     })();
 
     /* ── Map ── */
@@ -128,11 +147,13 @@
         }
     });
 
-    mapAdapter.onMarkerPopupOpen(function ({ vehicleId, startTime, ageEl }) {
+    mapAdapter.onMarkerPopupOpen(function () {
         clearInterval(ageTimer);
-        if (!ageEl) return;
         ageTimer = setInterval(function () {
-            ageEl.textContent = String(Math.round((Date.now() - startTime) / 1000));
+            const el = document.querySelector('.popup-content-container .age-counter');
+            if (!el) return;
+            const ts = parseInt(el.dataset.ts, 10);
+            if (Number.isFinite(ts)) el.textContent = String(Math.round((Date.now() - ts) / 1000));
         }, 1000);
     });
 

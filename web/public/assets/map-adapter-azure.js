@@ -11,9 +11,9 @@
     let _locSource = null;
 
     // Live state
-    let _busMarkers = [];   // atlas.HtmlMarker[] — current bus markers
-    let _busPopups  = [];   // atlas.Popup[] — one per marker
-    let _locMarker  = null; // atlas.HtmlMarker — user location dot
+    // Keyed by vehicle_id — reused across polls so position can be animated
+    let _busMarkerMap = {}; // { [vehicleId]: { marker, popup } }
+    let _locMarker    = null; // atlas.HtmlMarker — user location dot
 
     // One-time event callbacks (registered by map.html once on page load)
     let _markerClickFn      = null;
@@ -29,6 +29,9 @@
     // SVG overlay for route animation (replaces WebGL LineLayer approach)
     let _routeSvgEl     = null;  // <svg> element
     let _routeSvgCoords = null;  // [[lng, lat], ...] for reprojection on map move
+
+    // rAF handle for pinned-bus route-following animation
+    let _animFrame = null;
 
     function _whenReady(fn) {
         if (_ready) fn();
@@ -155,6 +158,69 @@
         _routeSvgCoords = null;
     }
 
+    // ── Route-following animation helpers ───────────────────────────────────
+
+    function _segDist(a, b) {
+        var dx = a[0] - b[0], dy = a[1] - b[1];
+        return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    // Returns arc-length t (0..1) of the closest point on the route to pos
+    function _projectOnRoute(coords, segLens, totalLen, pos) {
+        var bestArc = 0, bestDist = Infinity, cum = 0;
+        for (var i = 0; i < segLens.length; i++) {
+            var p1 = coords[i], p2 = coords[i + 1];
+            var dx = p2[0] - p1[0], dy = p2[1] - p1[1];
+            var len2 = dx * dx + dy * dy;
+            var t = len2 > 0 ? Math.max(0, Math.min(1, ((pos[0] - p1[0]) * dx + (pos[1] - p1[1]) * dy) / len2)) : 0;
+            var dist = _segDist([p1[0] + t * dx, p1[1] + t * dy], pos);
+            if (dist < bestDist) { bestDist = dist; bestArc = cum + t * segLens[i]; }
+            cum += segLens[i];
+        }
+        return bestArc / totalLen;
+    }
+
+    // Returns [lng, lat] at arc-length t (0..1) along the route
+    function _pointAtT(coords, segLens, totalLen, t) {
+        var target = t * totalLen, cum = 0;
+        for (var i = 0; i < segLens.length; i++) {
+            if (cum + segLens[i] >= target) {
+                var frac = segLens[i] > 0 ? (target - cum) / segLens[i] : 0;
+                return [coords[i][0] + frac * (coords[i + 1][0] - coords[i][0]),
+                        coords[i][1] + frac * (coords[i + 1][1] - coords[i][1])];
+            }
+            cum += segLens[i];
+        }
+        return coords[coords.length - 1];
+    }
+
+    function _animateAlongRoute(marker, popup, fromPos, toPos) {
+        if (_animFrame) { cancelAnimationFrame(_animFrame); _animFrame = null; }
+        var coords = _routeSvgCoords;
+        if (!coords || coords.length < 2) { return; }
+        var segLens = [], totalLen = 0;
+        for (var i = 1; i < coords.length; i++) {
+            var l = _segDist(coords[i - 1], coords[i]);
+            segLens.push(l);
+            totalLen += l;
+        }
+        if (totalLen === 0) { return; }
+        var tStart = _projectOnRoute(coords, segLens, totalLen, fromPos);
+        var tEnd   = _projectOnRoute(coords, segLens, totalLen, toPos);
+        var startTs = null;
+        var DURATION = 5000;
+        function step(ts) {
+            if (!startTs) startTs = ts;
+            var progress = Math.min((ts - startTs) / DURATION, 1);
+            var pos = _pointAtT(coords, segLens, totalLen, tStart + (tEnd - tStart) * progress);
+            marker.setOptions({ position: pos });
+            if (_openPopup === popup) popup.setOptions({ position: pos });
+            if (progress < 1) { _animFrame = requestAnimationFrame(step); }
+            else { _animFrame = null; }
+        }
+        _animFrame = requestAnimationFrame(step);
+    }
+
     // ── Public API ──────────────────────────────────────────────────────────
 
     window.mapAdapter = {
@@ -224,91 +290,128 @@
 
         updateBusMarkers: function (vehicles, pinnedVehicleId, userLat, userLng) {
             _whenReady(function () {
-                // Remove old markers and popups
-                _busMarkers.forEach(function (m) { _map.markers.remove(m); });
-                _busPopups.forEach(function (p) { p.close(); });
-                _busMarkers = [];
-                _busPopups  = [];
-                _openPopup  = null;
+                const newIds = new Set(vehicles.map(function (v) { return String(v.vehicle_id); }));
+
+                // Remove markers for vehicles no longer in the feed
+                Object.keys(_busMarkerMap).forEach(function (id) {
+                    if (!newIds.has(id)) {
+                        _map.markers.remove(_busMarkerMap[id].marker);
+                        _busMarkerMap[id].popup.close();
+                        if (_openPopup === _busMarkerMap[id].popup) _openPopup = null;
+                        delete _busMarkerMap[id];
+                    }
+                });
 
                 vehicles.forEach(function (v) {
-                    const isPinned = v.vehicle_id === pinnedVehicleId;
-                    const deg = (v.head_bearing != null && Number.isFinite(v.head_bearing))
+                    const vid      = String(v.vehicle_id);
+                    const isPinned = vid === String(pinnedVehicleId);
+                    const deg      = (v.head_bearing != null && Number.isFinite(v.head_bearing))
                         ? v.head_bearing + 90 : 0;
-
-                    const age = Math.round((Date.now() - Date.parse(v.timestamp)) / 1000);
+                    const age      = Math.round((Date.now() - Date.parse(v.timestamp)) / 1000);
                     const distLine = (userLat != null)
                         ? ('<br><b>Distance:</b> ' + (function () {
                             const d = _haversineMeters(userLat, userLng, v.lat, v.lon);
                             return d < 1000 ? Math.round(d) + 'm' : (d / 1000).toFixed(1) + 'km';
                         }()) + ' away')
                         : '';
-
-                    const popupContent =
+                    const popupHtml =
+                        '<div style="padding:6px 8px;font-size:0.82rem;line-height:1.6;">' +
                         '<b>Trip:</b> '    + _escapeHtml(v.trip_id)    + '<br>' +
                         '<b>Route:</b> '   + _escapeHtml(v.route_id)   + '<br>' +
                         '<b>Vehicle:</b> ' + _escapeHtml(v.vehicle_id) + '<br>' +
                         '<b>Speed:</b> '   + (v.speed != null ? _escapeHtml(v.speed) : '—') + ' m/s<br>' +
                         '<b>Bearing:</b> ' + (v.head_bearing != null ? _escapeHtml(v.head_bearing) + '°' : '—') + '<br>' +
-                        '<b>Updated:</b> <span class="age-counter">' + age + '</span>s ago' +
-                        distLine;
+                        '<b>Updated:</b> <span class="age-counter" data-ts="' + Date.parse(v.timestamp) + '">' + age + '</span>s ago' +
+                        distLine + '</div>';
 
-                    const popup = new atlas.Popup({
-                        content:     '<div style="padding:6px 8px;font-size:0.82rem;line-height:1.6;">' + popupContent + '</div>',
-                        position:    [v.lon, v.lat],
-                        pixelOffset: [0, -30],
-                    });
+                    if (_busMarkerMap[vid]) {
+                        // ── Reuse existing marker ──
+                        const marker      = _busMarkerMap[vid].marker;
+                        const popup       = _busMarkerMap[vid].popup;
+                        const isPinnedBus = (_openPopup === popup);
+                        const fromPos     = _busMarkerMap[vid].lastPos || [v.lon, v.lat];
+                        _busMarkerMap[vid].lastPos = [v.lon, v.lat];
 
-                    const marker = new atlas.HtmlMarker({
-                        htmlContent: '<div style="transform:rotate(' + deg + 'deg);transform-origin:center;font-size:24px;cursor:pointer;">🚌</div>',
-                        position:    [v.lon, v.lat],
-                        anchor:      'center',
-                    });
+                        // Update bearing
+                        try {
+                            const innerEl = document.querySelector('[data-vid="' + CSS.escape(vid) + '"]');
+                            if (innerEl) innerEl.style.transform = 'rotate(' + deg + 'deg)';
+                        } catch (_) {}
 
-                    _map.markers.add(marker);
+                        if (isPinnedBus) {
+                            // Update timestamp on the live age-counter so the interval picks it up
+                            try {
+                                const ageEl = document.querySelector('.popup-content-container .age-counter');
+                                if (ageEl) ageEl.dataset.ts = String(Date.parse(v.timestamp));
+                            } catch (_) {}
+                        }
 
-                    // Marker click → toggle popup + notify app (pin/unpin)
-                    _map.events.add('click', marker, function () {
-                        _suppressMapClick = true;
-                        setTimeout(function () { _suppressMapClick = false; }, 0);
-                        if (_openPopup === popup) {
-                            // Same bus clicked → close popup (unpin)
-                            popup.close();
-                            _openPopup = null;
+                        if (isPinnedBus && _routeSvgCoords) {
+                            // Animate pinned bus along the route path
+                            _animateAlongRoute(marker, popup, fromPos, [v.lon, v.lat]);
                         } else {
-                            // Different bus → close old popup, open new one
-                            if (_openPopup) { _openPopup.close(); _openPopup = null; }
+                            // Non-pinned or no route: instant position update
+                            marker.setOptions({ position: [v.lon, v.lat] });
+                            if (isPinnedBus) {
+                                popup.setOptions({ position: [v.lon, v.lat] });
+                            } else {
+                                popup.setOptions({ content: popupHtml, position: [v.lon, v.lat] });
+                            }
+                        }
+
+                    } else {
+                        // ── Create new marker ──
+                        const popup = new atlas.Popup({
+                            content:     popupHtml,
+                            position:    [v.lon, v.lat],
+                            pixelOffset: [0, -30],
+                        });
+
+                        const marker = new atlas.HtmlMarker({
+                            htmlContent: '<div data-vid="' + _escapeHtml(vid) + '" style="transform:rotate(' + deg + 'deg);transform-origin:center;font-size:24px;cursor:pointer;">🚌</div>',
+                            position:    [v.lon, v.lat],
+                            anchor:      'center',
+                        });
+
+                        _map.markers.add(marker);
+
+                        _map.events.add('click', marker, function () {
+                            _suppressMapClick = true;
+                            setTimeout(function () { _suppressMapClick = false; }, 0);
+                            if (_openPopup === popup) {
+                                popup.close();
+                                _openPopup = null;
+                            } else {
+                                if (_openPopup) { _openPopup.close(); _openPopup = null; }
+                                popup.open(_map);
+                                _openPopup = popup;
+                            }
+                            if (_markerClickFn) {
+                                _markerClickFn({ vehicleId: vid, lat: v.lat, lon: v.lon, tripId: v.trip_id });
+                            }
+                        });
+
+                        _map.events.add('open', popup, function () {
+                            if (_markerPopupOpenFn) _markerPopupOpenFn({ vehicleId: vid });
+                        });
+
+                        _map.events.add('close', popup, function () {
+                            if (_openPopup === popup) _openPopup = null;
+                            if (_markerPopupCloseFn) _markerPopupCloseFn({ vehicleId: vid });
+                        });
+
+                        _busMarkerMap[vid] = { marker: marker, popup: popup, lastPos: [v.lon, v.lat] };
+                    }
+
+                    // Open popup for pinned vehicle if not already open
+                    if (isPinned) {
+                        const popup = _busMarkerMap[vid].popup;
+                        if (_openPopup !== popup) {
+                            if (_openPopup) { _openPopup.close(); }
                             popup.open(_map);
                             _openPopup = popup;
                         }
-                        if (_markerClickFn) {
-                            _markerClickFn({ vehicleId: v.vehicle_id, lat: v.lat, lon: v.lon, tripId: v.trip_id });
-                        }
-                    });
-
-                    // Popup open → start age counter
-                    _map.events.add('open', popup, function () {
-                        if (_markerPopupOpenFn) {
-                            setTimeout(function () {
-                                const ageEl = document.querySelector('.popup-content-container .age-counter');
-                                _markerPopupOpenFn({ vehicleId: v.vehicle_id, startTime: Date.parse(v.timestamp), ageEl: ageEl });
-                            }, 50);
-                        }
-                    });
-
-                    // Popup close → stop age counter, clear open popup ref
-                    _map.events.add('close', popup, function () {
-                        if (_openPopup === popup) _openPopup = null;
-                        if (_markerPopupCloseFn) _markerPopupCloseFn({ vehicleId: v.vehicle_id });
-                    });
-
-                    if (isPinned) {
-                        popup.open(_map);
-                        _openPopup = popup;
                     }
-
-                    _busMarkers.push(marker);
-                    _busPopups.push(popup);
                 });
             });
         },
@@ -338,11 +441,13 @@
 
         clearRoute: function () {
             _whenReady(function () {
+                if (_animFrame) { cancelAnimationFrame(_animFrame); _animFrame = null; }
                 _clearRouteSvg();
             });
         },
 
         closeOpenPopup: function () {
+            if (_animFrame) { cancelAnimationFrame(_animFrame); _animFrame = null; }
             if (_openPopup) { _openPopup.close(); _openPopup = null; }
         },
 

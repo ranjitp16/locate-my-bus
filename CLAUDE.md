@@ -51,6 +51,18 @@ POSTGRES_DB
 DELETE_ACCESS_KEY   # required by web server and docker-web
 ```
 
+### Devcontainer
+
+A VS Code devcontainer is defined in `.devcontainer/`. It spins up a C++ Ubuntu container (port 8080→3000) and a Postgres 17 container (port 5434→5432). On `postCreate`, it installs system deps (`protobuf-compiler`, `libprotobuf-dev`, `libcurl4-openssl-dev`, `libpqxx-dev`), installs Node 22 via nvm, and runs `make get-protobuf-headers`. Environment variables come from `.development.env` (loaded into shell on container start).
+
+The devcontainer Docker network is `locate-my-bus_devcontainer_default` — used by `make run-docker` to attach the daemon container to the same network as Postgres.
+
+### Debug make target
+
+```sh
+make run-loop-29    # tail output from vehicle 29 every 60s (dev/debug only)
+```
+
 ---
 
 ## Architecture
@@ -92,14 +104,19 @@ Express 5, single file. Uses a `pg.Pool` for all queries. No ORM.
 - Column mapping is driven by `information_schema.columns` — the code queries the DB schema at runtime to know which columns to insert. This means the DB schema is the source of truth for what gets imported.
 - Bulk inserts use batches of 5 000 rows (`BATCH_SIZE = 5000` in repository).
 
-**Auth**: `authMiddleware` checks the `x-access-key` header against `process.env.DELETE_ACCESS_KEY`. Applied to `POST /api/agencies/add`, `DELETE /api/agencies/delete/:id`.
+**Auth**: `authMiddleware` checks the `x-access-key` header against `process.env.DELETE_ACCESS_KEY`. Applied to `POST /api/agencies/add`, `DELETE /api/agencies/delete/:id`, all `/api/dashboard/*`, and `POST /api/daemon/kill`.
+
+**Daemon control**: `POST /api/daemon/kill` restarts the daemon container via the Docker socket (`/var/run/docker.sock`) — finds containers by image name `ranjitnovascotia/locate-my-bus:latest`, kills and restarts them.
 
 ### Frontend (`web/public/`)
 
-- `map.html` — Leaflet.js map; polls `/live/:agency_id/:route_id` every 15 s; marker click pins the map to that bus; zoom/center persisted in `localStorage`; light/dark theme via `data-theme` on `<html>` stored in `localStorage`.
+- `map.html` — Leaflet.js map; polls `/live/:agency_id/:route_id` every 15 s; marker click pins the map to that bus; zoom/center persisted in `localStorage`; light/dark theme via `data-theme` on `<html>` stored in `localStorage`. Shows route shape polyline via `/api/shape/:agency_id/:trip_id` when a bus is pinned. Auto-pins nearest bus when user location is active.
+- `assets/index.html` — Azure Maps variant of the map (served at `/map`).
 - `addAgency.html` — agency management UI; access key stored in `sessionStorage` as `dash-access-key`.
+- `dashboard.html` — ops dashboard; served at `/dash/monitor`.
 - Bootstrap 5.3.3 + Font Awesome 6.5.1 loaded from CDN with SRI hashes; Leaflet served locally from `node_modules/leaflet/dist` at `/leaflet`.
 - Never use `innerHTML` with user-supplied data — always use DOM APIs or `textContent`.
+- CSP (in `helmet` config) allows `atlas.microsoft.com` for Azure Maps scripts, styles, fonts, images, and connections.
 
 ### Database (`db/schema/init.sql`)
 
