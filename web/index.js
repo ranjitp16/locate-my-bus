@@ -70,7 +70,6 @@ app.use(helmet({
             ],
             connectSrc: [
                 "'self'",
-                "https://atlas.microsoft.com",
                 "https://cdn.jsdelivr.net",
                 "https://www.googletagmanager.com",
                 "https://www.google-analytics.com",
@@ -98,6 +97,32 @@ const authMiddleware = (req, res, next) => {
 app.use(express.static(path.join(__dirname, 'public')))
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+/* ── Azure Maps proxy — keeps subscription key server-side ── */
+app.use('/api/azure-maps', async (req, res) => {
+    if (!process.env.AZURE_MAPS_KEY) {
+        return res.status(503).json({ error: 'Azure Maps key not configured' });
+    }
+    const target = new URL('https://atlas.microsoft.com' + req.url);
+    target.searchParams.delete('subscription-key');
+    target.searchParams.set('subscription-key', process.env.AZURE_MAPS_KEY);
+    try {
+        const upstream = await fetch(target.toString(), {
+            method: req.method,
+            headers: { 'Accept-Encoding': 'identity' },
+        });
+        res.status(upstream.status);
+        const ct = upstream.headers.get('content-type');
+        if (ct) res.setHeader('Content-Type', ct);
+        const cc = upstream.headers.get('cache-control');
+        if (cc) res.setHeader('Cache-Control', cc);
+        const { Readable } = require('stream');
+        Readable.fromWeb(upstream.body).pipe(res);
+    } catch (err) {
+        console.error('[azure-maps proxy]', err.message);
+        res.status(502).end();
+    }
+});
 
 app
     .get('/routes/:agency_id/:running_route', async (req, res) => {

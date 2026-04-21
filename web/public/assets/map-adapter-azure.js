@@ -1,8 +1,6 @@
 (function () {
     'use strict';
 
-    const AZURE_MAPS_KEY = 'AZURE_MAPS_KEY_PLACEHOLDER';
-
     let _map    = null;
     let _ready  = false;
     let _queue  = [];  // ops deferred until map is ready
@@ -235,7 +233,18 @@
                 language: 'en-US',
                 authOptions: {
                     authType:        'subscriptionKey',
-                    subscriptionKey: opts.authKey || AZURE_MAPS_KEY,
+                    subscriptionKey: '__proxied__',
+                },
+                // Rewrite all atlas.microsoft.com requests to go through our
+                // server proxy (/api/azure-maps/...) so the real key is never
+                // exposed client-side.
+                transformRequest: function (url) {
+                    if (typeof url === 'string' && url.indexOf('atlas.microsoft.com') !== -1) {
+                        var u = new URL(url);
+                        u.searchParams.delete('subscription-key');
+                        return { url: '/api/azure-maps' + u.pathname + u.search };
+                    }
+                    return { url: url };
                 },
             });
 

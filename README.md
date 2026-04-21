@@ -79,6 +79,7 @@ POSTGRES_USER=postgres
 POSTGRES_PASSWORD=postgres
 POSTGRES_DB=locate_my_bus
 DELETE_ACCESS_KEY=<secret>    # required to add/delete agencies
+AZURE_MAPS_KEY=<key>          # Azure Maps subscription key (proxied server-side)
 ```
 
 ### Installation

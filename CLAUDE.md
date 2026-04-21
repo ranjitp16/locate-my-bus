@@ -49,6 +49,7 @@ POSTGRES_USER
 POSTGRES_PASSWORD
 POSTGRES_DB
 DELETE_ACCESS_KEY   # required by web server and docker-web
+AZURE_MAPS_KEY      # Azure Maps subscription key — proxied via /api/azure-maps, never sent to client
 ```
 
 ### Devcontainer
