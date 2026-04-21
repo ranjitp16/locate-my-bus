@@ -80,7 +80,8 @@ app.use(helmet({
             ],
             workerSrc: [
                 "'self'",
-                "blob: https://atlas.microsoft.com"
+                "blob:",
+                "https://atlas.microsoft.com"
             ]
         },
     },
@@ -95,7 +96,6 @@ const authMiddleware = (req, res, next) => {
 };
 
 app.use(express.static(path.join(__dirname, 'public')))
-app.use('/leaflet', express.static(path.join(__dirname, '../node_modules/leaflet/dist')))
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
