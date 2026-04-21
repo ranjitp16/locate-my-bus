@@ -79,13 +79,22 @@
         return coords;
     }
 
+    // Compute a strokeDashArray that looks like [12,8] shifted forward by `offset` units (0..19)
+    function _dashArrayAtOffset(offset) {
+        var o = ((offset % 20) + 20) % 20;
+        if (o < 12) {
+            return [12 - o, 8, 12, 8];   // partway through a dash
+        } else {
+            return [0, 20 - o, 12, 8];   // partway through a gap
+        }
+    }
+
     function _startRouteAnimation() {
         if (_routeAnimFrame) cancelAnimationFrame(_routeAnimFrame);
         _dashOffset = 0;
         function step() {
-            _dashOffset -= 0.3;
-            if (_dashOffset < -20) _dashOffset += 20;
-            if (_routeDashLayer) _routeDashLayer.setOptions({ strokeDashOffset: _dashOffset });
+            _dashOffset = (_dashOffset + 0.4) % 20;
+            if (_routeDashLayer) _routeDashLayer.setOptions({ strokeDashArray: _dashArrayAtOffset(_dashOffset) });
             _routeAnimFrame = requestAnimationFrame(step);
         }
         _routeAnimFrame = requestAnimationFrame(step);
@@ -94,7 +103,7 @@
     function _stopRouteAnimation() {
         if (_routeAnimFrame) { cancelAnimationFrame(_routeAnimFrame); _routeAnimFrame = null; }
         _dashOffset = 0;
-        if (_routeDashLayer) _routeDashLayer.setOptions({ strokeDashOffset: 0 });
+        if (_routeDashLayer) _routeDashLayer.setOptions({ strokeDashArray: [12, 8] });
     }
 
     // ── Public API ──────────────────────────────────────────────────────────
@@ -125,11 +134,10 @@
                     strokeOpacity: 0.4,
                 }));
                 _routeDashLayer = new atlas.layer.LineLayer(_routeSource, 'route-dash', {
-                    strokeColor:      '#1558d0',
-                    strokeWidth:      4,
-                    strokeOpacity:    0.9,
-                    strokeDashArray:  [12, 8],
-                    strokeDashOffset: 0,
+                    strokeColor:     '#1558d0',
+                    strokeWidth:     4,
+                    strokeOpacity:   0.9,
+                    strokeDashArray: [12, 8],
                 });
                 _map.layers.add(_routeDashLayer);
 
@@ -159,9 +167,10 @@
 
         setView: function (lat, lng, zoom, animate) {
             _map.setCamera({
-                center: [lng, lat],
-                zoom:   zoom,
-                type:   animate ? 'ease' : 'jump',
+                center:   [lng, lat],
+                zoom:     zoom,
+                type:     animate ? 'ease' : 'jump',
+                duration: animate ? 400 : 0,
             });
         },
 
