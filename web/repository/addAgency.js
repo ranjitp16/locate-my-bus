@@ -231,4 +231,40 @@ const getFileContentsFromTrip = async (client, decompressed, fileName, tableName
     return { lines, header, sanitized_table_headers_no_id };
 }
 
-module.exports = { handleWriteFromAgency, handleWriteFromRoutes, handleWriteFromShapes, handleWriteFromTrip };
+const handleWriteFromStops = async (client, fileName, tableName, decompressed, listOfAgencyGuids, static_feed_url) => {
+    console.log("INITIATING STOP WRITES: " + static_feed_url);
+
+    var { lines, header, sanitized_table_headers_no_id } = await getFileContents(client, decompressed, fileName, tableName, tableName, static_feed_url);
+
+    const columns = [...header.map(h => h.replace(`${tableName}_`, '')).filter(h => sanitized_table_headers_no_id.some(sh => sh.column_name === h))];
+    columns.push("agency_id");
+
+    const stopIdsByAgency = new Map();
+
+    for (const { uuid } of listOfAgencyGuids) {
+        const agency_id = uuid;
+        const rows = [];
+        const stopIds = new Set();
+
+        for (const line of lines) {
+            const values = line.split(',').map(v => v.trim());
+            const params = [];
+
+            header.forEach((h, i) => {
+                if (sanitized_table_headers_no_id.some(sh => sh.column_name === h.replace(`${tableName}_`, ''))) {
+                    params.push(values[i] || null);
+                    if (h === `${tableName}_id`) stopIds.add(values[i]);
+                }
+            });
+            params.push(agency_id);
+            rows.push(params);
+        }
+
+        if (rows.length > 0) await bulkInsert(client, tableName, columns, rows);
+        stopIdsByAgency.set(agency_id, stopIds);
+    }
+    console.log("COMPLETED STOP WRITES: " + static_feed_url);
+    return stopIdsByAgency;
+};
+
+module.exports = { handleWriteFromAgency, handleWriteFromRoutes, handleWriteFromShapes, handleWriteFromTrip, handleWriteFromStops };
