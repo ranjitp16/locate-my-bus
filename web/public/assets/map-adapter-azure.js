@@ -704,7 +704,8 @@
                                 ? '< 1 min'
                                 : Math.round(secs / 60) + ' min';
                             var walkInfo = '<div class="stop-popup-walk">'
-                                + '&#128694; ' + _escapeHtml(distText) + ' walk &middot; ~' + _escapeHtml(timeText)
+                                + '<span style="font-size:1.1rem;vertical-align:middle;">&#128694;</span> '
+                                + _escapeHtml(distText) + ' walk &middot; ~' + _escapeHtml(timeText)
                                 + '</div>';
                             // Append walk info to existing popup content
                             var existingContent = markersRef[bestIdx].popup.getOptions().content;
