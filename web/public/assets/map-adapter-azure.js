@@ -543,8 +543,8 @@
                         schedText = h + ':' + m + ' ' + suffix;
                     }
 
-                    // Build popup content
-                    var html = '<div class="stop-popup">';
+                    // Build popup content — force fixed width so Atlas container doesn't expand
+                    var html = '<div class="stop-popup" style="width:220px;white-space:normal;">';
                     html += '<div class="stop-popup-name">' + _escapeHtml(stop.name || 'Unnamed Stop') + '</div>';
                     if (schedText) {
                         html += '<div class="stop-popup-schedule">Scheduled: ' + _escapeHtml(schedText) + '</div>';
