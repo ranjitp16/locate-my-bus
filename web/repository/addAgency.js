@@ -1,3 +1,23 @@
+// Parse a CSV line respecting quoted fields (e.g. "Main St, South Side" stays as one value)
+function parseCsvLine(line) {
+    const values = [];
+    let current = '';
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+        const ch = line[i];
+        if (ch === '"') {
+            inQuotes = !inQuotes;
+        } else if (ch === ',' && !inQuotes) {
+            values.push(current.trim());
+            current = '';
+        } else {
+            current += ch;
+        }
+    }
+    values.push(current.trim());
+    return values;
+}
+
 const handleWriteFromAgency = async (client, fileName, tableName, decompressed, rt_feed_url, static_feed_url, api_key) => {
     console.log("INITIATING AGENCY WRITES: " + static_feed_url);
     var { lines, header, sanitized_table_headers_no_id } = await getFileContents(client, decompressed, fileName, tableName, tableName, static_feed_url);
@@ -7,7 +27,7 @@ const handleWriteFromAgency = async (client, fileName, tableName, decompressed, 
     const listToReturn = [];
 
     for (const line of lines) {
-        const values = line.split(',').map(v => v.trim());
+        const values = parseCsvLine(line);
         const uuid = crypto.randomUUID();
         const params = [uuid];
         let listToReturnEntry = { uuid };
@@ -44,7 +64,7 @@ const handleWriteFromRoutes = async (client, fileName, tableName, decompressed, 
     const rows = [];
 
     for (const line of lines) {
-        const values = line.split(',').map(v => v.trim());
+        const values = parseCsvLine(line);
 
         const params = [];
         let agency_id;
@@ -105,7 +125,7 @@ const handleWriteFromTrip = async (client, fileName, tableName, decompressed, li
         const rows = [];
 
         for (const line of lines) {
-            const values = line.split(',').map(v => v.trim());
+            const values = parseCsvLine(line);
             if (!listOfGuidFromRoute.get(agency_id).includes(values[indexOfRoute])) continue;
 
             const params = [];
@@ -143,7 +163,7 @@ const handleWriteFromShapes = async (client, fileName, tableName, decompressed, 
         const seenShapeIds = new Set();
 
         for (const line of lines) {
-            const values = line.split(',').map(v => v.trim());
+            const values = parseCsvLine(line);
             const params = [];
 
             header.forEach((h, i) => {
@@ -247,7 +267,7 @@ const handleWriteFromStops = async (client, fileName, tableName, decompressed, l
         const stopIds = new Set();
 
         for (const line of lines) {
-            const values = line.split(',').map(v => v.trim());
+            const values = parseCsvLine(line);
             const params = [];
 
             header.forEach((h, i) => {
@@ -289,7 +309,7 @@ const handleWriteFromStopTimes = async (client, fileName, tableName, decompresse
         const validStops = stopIdsByAgency.get(agency_id) || new Set();
 
         for (const line of lines) {
-            const values = line.split(',').map(v => v.trim());
+            const values = parseCsvLine(line);
 
             const tripId = values[indexOfTrip];
             const stopId = values[indexOfStop];

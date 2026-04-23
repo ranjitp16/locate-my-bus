@@ -366,7 +366,7 @@
     /* ── Refresh All Agencies ── */
     document.getElementById('refresh-all-btn').addEventListener('click', async () => {
         const btn = document.getElementById('refresh-all-btn');
-        if (!confirm('This will purge all data (except agencies) and re-onboard everything. Continue?')) return;
+        if (!confirm('This will purge all data and re-onboard all agencies from their GTFS feeds. Continue?')) return;
         const origHtml = btn.innerHTML;
         btn.disabled = true;
         btn.innerHTML = '<div class="spinner-border spinner-border-sm" role="status"></div> Refreshing…';

@@ -106,6 +106,7 @@ app.use(express.urlencoded({ extended: true }));
 const AZURE_MAPS_ALLOWED_PATHS = ['/map/tile', '/map/tileset', '/map/imagery',
     '/map/statetile', '/map/attribution', '/renderv2/',
     '/atlas/styles', '/atlas/fonts', '/atlas/sprites', '/atlas/icons',
+    '/styling/',
     '/geocoding', '/search', '/route', '/spatial', '/timezone', '/weather'];
 app.get('/api/azure-maps/{*path}', async (req, res) => {
     if (!process.env.AZURE_MAPS_KEY) {
