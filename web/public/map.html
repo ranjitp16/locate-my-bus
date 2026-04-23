@@ -39,7 +39,7 @@
     <div id="controls">
         <div id="controls-header">
             <div id="poll-timer">polling in: —</div>
-            <button id="controls-toggle" title="Collapse controls">▾</button>
+            <button id="controls-toggle" title="Collapse controls" aria-label="Collapse controls" aria-expanded="true" aria-controls="controls">▾</button>
         </div>
         <select id="agency-select" disabled>
             <option value="">Loading agencies…</option>
@@ -91,6 +91,8 @@
             controls.classList.toggle('collapsed', on);
             toggle.textContent = on ? '▸' : '▾';
             toggle.title = on ? 'Expand controls' : 'Collapse controls';
+            toggle.setAttribute('aria-expanded', String(!on));
+            toggle.setAttribute('aria-label', on ? 'Expand controls' : 'Collapse controls');
             localStorage.setItem('controls-collapsed', on ? '1' : '0');
         }
         toggle.addEventListener('click', function () {
@@ -150,7 +152,7 @@
     mapAdapter.onMarkerPopupOpen(function () {
         clearInterval(ageTimer);
         ageTimer = setInterval(function () {
-            const el = document.querySelector('.popup-content-container .age-counter');
+            const el = document.querySelector('.popup-content-container .age-counter, .atlas-popup-content-container .age-counter');
             if (!el) return;
             const ts = parseInt(el.dataset.ts, 10);
             if (Number.isFinite(ts)) el.textContent = String(Math.round((Date.now() - ts) / 1000));

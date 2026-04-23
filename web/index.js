@@ -99,17 +99,38 @@ app.use(express.static(path.join(__dirname, 'public')))
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-/* ── Azure Maps proxy — keeps subscription key server-side ── */
-app.use('/api/azure-maps', async (req, res) => {
+/* ── Azure Maps proxy — keeps subscription key server-side ──
+   Anti-forgery: custom header (X-Azure-Maps-Proxy) triggers CORS preflight
+   for cross-origin callers, which will fail since we set no permissive CORS
+   headers. Only same-origin JS (our frontend) can send custom headers freely. */
+const AZURE_MAPS_ALLOWED_PATHS = ['/map/tile', '/map/tileset', '/map/imagery',
+    '/map/statetile', '/map/attribution', '/renderv2/',
+    '/atlas/styles', '/atlas/fonts', '/atlas/sprites', '/atlas/icons',
+    '/geocoding', '/search', '/route', '/spatial', '/timezone', '/weather'];
+app.get('/api/azure-maps/{*path}', async (req, res) => {
     if (!process.env.AZURE_MAPS_KEY) {
         return res.status(503).json({ error: 'Azure Maps key not configured' });
     }
-    const target = new URL('https://atlas.microsoft.com' + req.url);
-    target.searchParams.delete('subscription-key');
+    if (req.headers['x-azure-maps-proxy'] !== '1') {
+        return res.status(403).json({ error: 'Forbidden' });
+    }
+    const proxyPath = req.path.replace(/^\/api\/azure-maps/, '');
+    if (!AZURE_MAPS_ALLOWED_PATHS.some(p => proxyPath.startsWith(p))) {
+        return res.status(403).json({ error: 'Path not allowed' });
+    }
+    const target = new URL('https://atlas.microsoft.com' + proxyPath);
+    // Carry over query params from the original request
+    for (const [k, v] of Object.entries(req.query)) {
+        if (k === 'subscription-key') continue;
+        if (Array.isArray(v)) {
+            v.forEach(val => target.searchParams.append(k, val));
+        } else {
+            target.searchParams.set(k, v);
+        }
+    }
     target.searchParams.set('subscription-key', process.env.AZURE_MAPS_KEY);
     try {
         const upstream = await fetch(target.toString(), {
-            method: req.method,
             headers: { 'Accept-Encoding': 'identity' },
         });
         res.status(upstream.status);
@@ -117,6 +138,7 @@ app.use('/api/azure-maps', async (req, res) => {
         if (ct) res.setHeader('Content-Type', ct);
         const cc = upstream.headers.get('cache-control');
         if (cc) res.setHeader('Cache-Control', cc);
+        if (!upstream.body) return res.end();
         const { Readable } = require('stream');
         Readable.fromWeb(upstream.body).pipe(res);
     } catch (err) {
