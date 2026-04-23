@@ -99,17 +99,39 @@ app.use(express.static(path.join(__dirname, 'public')))
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-/* ── Azure Maps proxy — keeps subscription key server-side ── */
-app.use('/api/azure-maps', async (req, res) => {
+/* ── Azure Maps proxy — keeps subscription key server-side ──
+   Anti-forgery: custom header (X-Azure-Maps-Proxy) triggers CORS preflight
+   for cross-origin callers, which will fail since we set no permissive CORS
+   headers. Only same-origin JS (our frontend) can send custom headers freely. */
+const AZURE_MAPS_ALLOWED_PATHS = ['/map/tile', '/map/tileset', '/map/imagery',
+    '/map/statetile', '/map/attribution', '/renderv2/',
+    '/atlas/styles', '/atlas/fonts', '/atlas/sprites', '/atlas/icons',
+    '/styling/',
+    '/geocoding', '/search', '/route', '/spatial', '/timezone', '/weather'];
+app.get('/api/azure-maps/{*path}', async (req, res) => {
     if (!process.env.AZURE_MAPS_KEY) {
         return res.status(503).json({ error: 'Azure Maps key not configured' });
     }
-    const target = new URL('https://atlas.microsoft.com' + req.url);
-    target.searchParams.delete('subscription-key');
+    if (req.headers['x-azure-maps-proxy'] !== '1') {
+        return res.status(403).json({ error: 'Forbidden' });
+    }
+    const proxyPath = req.path.replace(/^\/api\/azure-maps/, '');
+    if (!AZURE_MAPS_ALLOWED_PATHS.some(p => proxyPath.startsWith(p))) {
+        return res.status(403).json({ error: 'Path not allowed' });
+    }
+    const target = new URL('https://atlas.microsoft.com' + proxyPath);
+    // Carry over query params from the original request
+    for (const [k, v] of Object.entries(req.query)) {
+        if (k === 'subscription-key') continue;
+        if (Array.isArray(v)) {
+            v.forEach(val => target.searchParams.append(k, val));
+        } else {
+            target.searchParams.set(k, v);
+        }
+    }
     target.searchParams.set('subscription-key', process.env.AZURE_MAPS_KEY);
     try {
         const upstream = await fetch(target.toString(), {
-            method: req.method,
             headers: { 'Accept-Encoding': 'identity' },
         });
         res.status(upstream.status);
@@ -117,6 +139,7 @@ app.use('/api/azure-maps', async (req, res) => {
         if (ct) res.setHeader('Content-Type', ct);
         const cc = upstream.headers.get('cache-control');
         if (cc) res.setHeader('Cache-Control', cc);
+        if (!upstream.body) return res.end();
         const { Readable } = require('stream');
         Readable.fromWeb(upstream.body).pipe(res);
     } catch (err) {
@@ -392,6 +415,56 @@ app.get('/api/shape/:agency_id/:trip_id', async (req, res) => {
     );
 
     res.send({ trip_headsign: tripRows[0].trip_headsign, rows });
+});
+
+app.get('/api/stops/:agency_id/:trip_id', async (req, res) => {
+    const { agency_id, trip_id } = req.params;
+
+    try {
+        const { rows } = await pool.query(
+            `SELECT s.id AS stop_id, s.name, s.code, s.lat, s.lon,
+                    st.arrival_time, st.departure_time, st.stop_sequence,
+                    s.wheelchair_boarding
+             FROM public.stop_time st
+             JOIN public.stop s ON s.agency_id = st.agency_id AND s.id = st.stop_id
+             WHERE st.agency_id = $1 AND st.trip_id = $2
+             ORDER BY st.stop_sequence::int ASC`,
+            [agency_id, trip_id]
+        );
+
+        res.json(rows);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Failed to fetch stops.' });
+    }
+});
+
+app.post('/api/agencies/refresh', authMiddleware, async (req, res) => {
+    try {
+        // 1. Capture agency list before truncating
+        const { rows: agencies } = await pool.query('SELECT id, rt_feed_url, static_feed_url, api_key_in_header FROM public.agency');
+
+        // 2. Truncate ALL tables including agency (onBoardAgency creates fresh agency rows with new UUIDs)
+        await pool.query('TRUNCATE agency, route, shape, shape_point, trip, stop, stop_time, live_vehicle_position, poll_iteration, feed_execution CASCADE');
+
+        const results = { refreshed: 0, errors: [] };
+
+        // 3. Re-onboard each agency
+        for (const agency of agencies) {
+            try {
+                await onBoardAgency(agency.rt_feed_url, agency.static_feed_url, agency.api_key_in_header);
+                results.refreshed++;
+            } catch (err) {
+                console.error(`Refresh failed for agency ${agency.id}:`, err.message);
+                results.errors.push({ agency_id: agency.id, error: err.message });
+            }
+        }
+
+        res.json(results);
+    } catch (err) {
+        console.error('Refresh failed:', err);
+        res.status(500).json({ error: 'Refresh failed: ' + err.message });
+    }
 });
 
 app.listen(port, () => {

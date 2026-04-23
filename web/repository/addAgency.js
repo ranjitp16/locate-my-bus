@@ -1,3 +1,23 @@
+// Parse a CSV line respecting quoted fields (e.g. "Main St, South Side" stays as one value)
+function parseCsvLine(line) {
+    const values = [];
+    let current = '';
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+        const ch = line[i];
+        if (ch === '"') {
+            inQuotes = !inQuotes;
+        } else if (ch === ',' && !inQuotes) {
+            values.push(current.trim());
+            current = '';
+        } else {
+            current += ch;
+        }
+    }
+    values.push(current.trim());
+    return values;
+}
+
 const handleWriteFromAgency = async (client, fileName, tableName, decompressed, rt_feed_url, static_feed_url, api_key) => {
     console.log("INITIATING AGENCY WRITES: " + static_feed_url);
     var { lines, header, sanitized_table_headers_no_id } = await getFileContents(client, decompressed, fileName, tableName, tableName, static_feed_url);
@@ -7,7 +27,7 @@ const handleWriteFromAgency = async (client, fileName, tableName, decompressed, 
     const listToReturn = [];
 
     for (const line of lines) {
-        const values = line.split(',').map(v => v.trim());
+        const values = parseCsvLine(line);
         const uuid = crypto.randomUUID();
         const params = [uuid];
         let listToReturnEntry = { uuid };
@@ -44,7 +64,7 @@ const handleWriteFromRoutes = async (client, fileName, tableName, decompressed, 
     const rows = [];
 
     for (const line of lines) {
-        const values = line.split(',').map(v => v.trim());
+        const values = parseCsvLine(line);
 
         const params = [];
         let agency_id;
@@ -105,7 +125,7 @@ const handleWriteFromTrip = async (client, fileName, tableName, decompressed, li
         const rows = [];
 
         for (const line of lines) {
-            const values = line.split(',').map(v => v.trim());
+            const values = parseCsvLine(line);
             if (!listOfGuidFromRoute.get(agency_id).includes(values[indexOfRoute])) continue;
 
             const params = [];
@@ -143,7 +163,7 @@ const handleWriteFromShapes = async (client, fileName, tableName, decompressed, 
         const seenShapeIds = new Set();
 
         for (const line of lines) {
-            const values = line.split(',').map(v => v.trim());
+            const values = parseCsvLine(line);
             const params = [];
 
             header.forEach((h, i) => {
@@ -231,4 +251,84 @@ const getFileContentsFromTrip = async (client, decompressed, fileName, tableName
     return { lines, header, sanitized_table_headers_no_id };
 }
 
-module.exports = { handleWriteFromAgency, handleWriteFromRoutes, handleWriteFromShapes, handleWriteFromTrip };
+const handleWriteFromStops = async (client, fileName, tableName, decompressed, listOfAgencyGuids, static_feed_url) => {
+    console.log("INITIATING STOP WRITES: " + static_feed_url);
+
+    var { lines, header, sanitized_table_headers_no_id } = await getFileContents(client, decompressed, fileName, tableName, tableName, static_feed_url);
+
+    const columns = [...header.map(h => h.replace(`${tableName}_`, '')).filter(h => sanitized_table_headers_no_id.some(sh => sh.column_name === h))];
+    columns.push("agency_id");
+
+    const stopIdsByAgency = new Map();
+
+    for (const { uuid } of listOfAgencyGuids) {
+        const agency_id = uuid;
+        const rows = [];
+        const stopIds = new Set();
+
+        for (const line of lines) {
+            const values = parseCsvLine(line);
+            const params = [];
+
+            header.forEach((h, i) => {
+                if (sanitized_table_headers_no_id.some(sh => sh.column_name === h.replace(`${tableName}_`, ''))) {
+                    params.push(values[i] || null);
+                    if (h === `${tableName}_id`) stopIds.add(values[i]);
+                }
+            });
+            params.push(agency_id);
+            rows.push(params);
+        }
+
+        if (rows.length > 0) await bulkInsert(client, tableName, columns, rows);
+        stopIdsByAgency.set(agency_id, stopIds);
+    }
+    console.log("COMPLETED STOP WRITES: " + static_feed_url);
+    return stopIdsByAgency;
+};
+
+const handleWriteFromStopTimes = async (client, fileName, tableName, decompressed, listOfAgencyGuids, stopIdsByAgency, static_feed_url) => {
+    console.log("INITIATING STOP_TIME WRITES: " + static_feed_url);
+
+    let { lines, header, sanitized_table_headers_no_id } = await getFileContentsFromTrip(client, decompressed, fileName, tableName, static_feed_url);
+
+    const columns = [...header.filter(h => sanitized_table_headers_no_id.some(sh => sh.column_name === h))];
+    columns.push("agency_id");
+
+    const indexOfTrip = header.indexOf('trip_id');
+    const indexOfStop = header.indexOf('stop_id');
+
+    for (const { uuid } of listOfAgencyGuids) {
+        const agency_id = uuid;
+        const rows = [];
+
+        // Load valid trip IDs for this agency
+        const tripResult = await client.query('SELECT id FROM public.trip WHERE agency_id = $1', [agency_id]);
+        const validTrips = new Set(tripResult.rows.map(r => r.id));
+
+        const validStops = stopIdsByAgency.get(agency_id) || new Set();
+
+        for (const line of lines) {
+            const values = parseCsvLine(line);
+
+            const tripId = values[indexOfTrip];
+            const stopId = values[indexOfStop];
+            if (!validTrips.has(tripId)) continue;
+            if (!validStops.has(stopId)) continue;
+
+            const params = [];
+            header.forEach((h, i) => {
+                if (sanitized_table_headers_no_id.some(sh => sh.column_name === h)) {
+                    params.push(values[i] || null);
+                }
+            });
+            params.push(agency_id);
+            rows.push(params);
+        }
+
+        if (rows.length > 0) await bulkInsert(client, tableName, columns, rows);
+    }
+    console.log("COMPLETED STOP_TIME WRITES: " + static_feed_url);
+};
+
+module.exports = { handleWriteFromAgency, handleWriteFromRoutes, handleWriteFromShapes, handleWriteFromTrip, handleWriteFromStops, handleWriteFromStopTimes };

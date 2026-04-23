@@ -15,7 +15,7 @@ The adapter is not a generic map abstraction. It covers exactly the methods `map
 
 ### New: `web/public/assets/map-adapter-azure.js`
 
-Implements the adapter contract (see below) using Azure Maps SDK v3. Exposes `window.mapAdapter`. Subscription key hardcoded for now.
+Implements the adapter contract (see below) using Azure Maps SDK v3. Exposes `window.mapAdapter`. The subscription key is kept server-side via `AZURE_MAPS_KEY` env var; the adapter's `transformRequest` rewrites all `atlas.microsoft.com` requests through the Express proxy at `/api/azure-maps`, adding an anti-forgery header (`X-Azure-Maps-Proxy: 1`).
 
 ### Modified: `web/public/map.html`
 
@@ -40,7 +40,7 @@ All 14 methods that `map.html` needs. Any future adapter (Leaflet, Mapbox, etc.)
 ### Map lifecycle
 
 ```js
-mapAdapter.init(containerId, { center: { lat, lng }, zoom, authKey })
+mapAdapter.init(containerId, { center: { lat, lng }, zoom })
 mapAdapter.setView(lat, lng, zoom, animate = false)
 mapAdapter.getCenter()          // → { lat, lng }
 mapAdapter.getZoom()            // → number
@@ -56,7 +56,7 @@ mapAdapter.onClick(fn)          // fn() — map background click, used to unpin 
 mapAdapter.updateBusMarkers(vehicles, pinnedVehicleId, userLat, userLng)
 
 mapAdapter.onMarkerClick(fn)        // fn({ vehicleId, lat, lon, tripId })
-mapAdapter.onMarkerPopupOpen(fn)    // fn({ vehicleId, startTime, ageEl }) — start age counter
+mapAdapter.onMarkerPopupOpen(fn)    // fn({ vehicleId }) — start age counter
 mapAdapter.onMarkerPopupClose(fn)   // fn({ vehicleId }) — clear age counter
 ```
 
@@ -83,19 +83,18 @@ mapAdapter.clearUserLocation()
 |---|---|---|
 | Bus markers | `L.marker` + `L.divIcon` | `atlas.HtmlMarker` with inline HTML |
 | Popups | `L.popup` | `atlas.Popup` |
-| Route polyline | `L.polyline` | `atlas.layer.LineLayer` on `DataSource` |
-| Start/end dots | `L.circleMarker` | `atlas.layer.BubbleLayer` on `DataSource` |
+| Route polyline | `L.polyline` | SVG overlay (`<path>` elements on canvas container) |
+| Start/end dots | `L.circleMarker` | SVG overlay (`<circle>` elements in same `<svg>`) |
 | User location dot | `L.marker` + `L.divIcon` | `atlas.HtmlMarker` |
 | Accuracy circle | `L.circle` | `atlas.layer.PolygonLayer` (circle geometry) |
 | Map events | `map.on('moveend', ...)` | `map.events.add('moveend', ...)` |
 
 Bus marker icon: same 🚌 emoji + CSS `transform: rotate(${deg}deg)` as today. `deg = bearing + 90` (emoji faces west).
 
-Animated dashed route: two `LineLayer` passes on the same `DataSource` — one solid low-opacity base, one dashed with CSS `stroke-dashoffset` animation on the SVG element (same visual as current Leaflet implementation).
+Animated dashed route: two SVG `<path>` elements layered on the map's canvas container — one solid low-opacity base, one dashed with CSS `@keyframes dash-flow` animation. Reprojected on every map `move` event via `map.positionsToPixels()`. SVG approach avoids WebGL `strokeDashArray` shader recompilation on each frame.
 
 ## Out of Scope
 
-- Env var wiring for the subscription key (deferred)
 - Leaflet removal from `node_modules`
 - Changes to any other page, Express route, or DB query
 - Build system, bundler, or TypeScript

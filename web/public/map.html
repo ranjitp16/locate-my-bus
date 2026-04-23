@@ -39,7 +39,7 @@
     <div id="controls">
         <div id="controls-header">
             <div id="poll-timer">polling in: —</div>
-            <button id="controls-toggle" title="Collapse controls">▾</button>
+            <button id="controls-toggle" title="Collapse controls" aria-label="Collapse controls" aria-expanded="true" aria-controls="controls">▾</button>
         </div>
         <select id="agency-select" disabled>
             <option value="">Loading agencies…</option>
@@ -51,6 +51,7 @@
             <input type="checkbox" id="running-only" checked>
             Running routes only
         </label>
+        <button id="poll-toggle-btn" title="Pause or resume live polling">⏸ Stop polling</button>
         <button id="locate-btn" title="Show my location on the map">◎ Show my location</button>
         <div id="location-error" role="alert" aria-live="assertive" aria-atomic="true" style="display:none;font-size:0.72rem;color:#e53935;flex-direction:column;gap:4px;">
             <span id="location-error-msg"></span>
@@ -91,6 +92,8 @@
             controls.classList.toggle('collapsed', on);
             toggle.textContent = on ? '▸' : '▾';
             toggle.title = on ? 'Expand controls' : 'Collapse controls';
+            toggle.setAttribute('aria-expanded', String(!on));
+            toggle.setAttribute('aria-label', on ? 'Expand controls' : 'Collapse controls');
             localStorage.setItem('controls-collapsed', on ? '1' : '0');
         }
         toggle.addEventListener('click', function () {
@@ -131,14 +134,14 @@
         pinnedVehicleId = null;
         manuallyPinned  = false;
         mapAdapter.closeOpenPopup();
-        mapAdapter.clearRoute();
+        clearRoute();
     });
 
     mapAdapter.onMarkerClick(function ({ vehicleId, lat, lon, tripId }) {
         if (pinnedVehicleId === vehicleId) {
             pinnedVehicleId = null;
             manuallyPinned  = false;
-            mapAdapter.clearRoute();
+            clearRoute();
         } else {
             pinnedVehicleId = vehicleId;
             manuallyPinned  = true;
@@ -150,7 +153,7 @@
     mapAdapter.onMarkerPopupOpen(function () {
         clearInterval(ageTimer);
         ageTimer = setInterval(function () {
-            const el = document.querySelector('.popup-content-container .age-counter');
+            const el = document.querySelector('.popup-content-container .age-counter, .atlas-popup-content-container .age-counter');
             if (!el) return;
             const ts = parseInt(el.dataset.ts, 10);
             if (Number.isFinite(ts)) el.textContent = String(Math.round((Date.now() - ts) / 1000));
@@ -174,6 +177,7 @@
 
     function clearRoute() {
         mapAdapter.clearRoute();
+        mapAdapter.clearStopMarkers();
     }
 
     function drawRoute(agencyId, tripId) {
@@ -189,6 +193,14 @@
                 mapAdapter.drawRoute(sorted);
             })
             .catch(err => console.error('Shape fetch failed:', err));
+
+        // Fetch stops in parallel
+        fetch(`/api/stops/${agencyId}/${tripId}`)
+            .then(r => r.json())
+            .then(stops => {
+                if (stops.length) mapAdapter.updateStopMarkers(stops, userLat, userLng);
+            })
+            .catch(err => console.error('Stops fetch failed:', err));
     }
 
     const pollTimerEl = document.getElementById('poll-timer');
@@ -367,6 +379,34 @@
             startCountdown();
         }, POLL_INTERVAL);
     }
+
+    /* ── Poll toggle ── */
+    let pollingPaused = false;
+    const pollToggleBtn = document.getElementById('poll-toggle-btn');
+    pollToggleBtn.addEventListener('click', function () {
+        if (pollingPaused) {
+            // Resume
+            pollingPaused = false;
+            pollToggleBtn.textContent = '⏸ Stop polling';
+            pollToggleBtn.classList.remove('active');
+            fetchLive();
+            startCountdown();
+            pollTimer = setInterval(() => {
+                fetchLive();
+                if (document.getElementById('running-only').checked) refreshRouteList(agencySelect.value);
+                startCountdown();
+            }, POLL_INTERVAL);
+        } else {
+            // Pause
+            pollingPaused = true;
+            clearInterval(pollTimer);
+            clearInterval(countdownTimer);
+            pollTimer = null;
+            pollToggleBtn.textContent = '▶ Resume polling';
+            pollToggleBtn.classList.add('active');
+            pollTimerEl.textContent = 'polling paused';
+        }
+    });
 
     /* ── Populate route select for a given agency ── */
     function loadRoutes(agencyId, restoreRoute = false) {

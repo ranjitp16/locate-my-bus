@@ -105,31 +105,37 @@ body { overflow: hidden; }
 }
 #details-toggle:hover { color: var(--text); }
 
-/* Azure Maps popup — match app theme */
-.popup-content-container {
+/* Azure Maps popup — match app theme (dual selectors for SDK class variations) */
+.popup-content-container,
+.atlas-popup-content-container {
     background-color: var(--surface) !important;
     border-color: var(--border) !important;
     color: var(--text) !important;
     border-radius: 8px !important;
     box-shadow: 0 2px 10px rgba(0,0,0,0.3) !important;
 }
-.popup-close {
+.popup-close,
+.atlas-popup-close-button {
     color: var(--text-muted) !important;
     background: transparent !important;
 }
-.popup-close:hover {
+.popup-close:hover,
+.atlas-popup-close-button:hover {
     color: var(--text) !important;
     background: var(--surface-alt) !important;
     border-radius: 4px !important;
 }
-.popup-content-container b {
+.popup-content-container b,
+.atlas-popup-content-container b {
     color: var(--accent) !important;
 }
 /* Arrow caret — border-color on container drives the triangle color */
-.popup-container {
+.popup-container,
+.atlas-popup-container {
     border-color: var(--surface) !important;
 }
-.popup-arrow {
+.popup-arrow,
+.atlas-popup-tip {
     border-top-color: var(--surface) !important;
 }
 
@@ -182,4 +188,68 @@ body { overflow: hidden; }
 }
 #locate-btn:hover { border-color: var(--accent); color: var(--accent); }
 #locate-btn.active { border-color: #2979ff; color: #2979ff; }
+
+#poll-toggle-btn {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 5px;
+    padding: 5px 8px;
+    font-family: inherit;
+    font-size: 0.8rem;
+    cursor: pointer;
+    text-align: left;
+}
+#poll-toggle-btn:hover { border-color: var(--accent); color: var(--accent); }
+#poll-toggle-btn.active { border-color: var(--danger, #dc2626); color: var(--danger, #dc2626); }
+
+/* ── Stop markers ── */
+.stop-dot {
+    /* Invisible 28x28 tap target around the visible dot */
+    width: 28px;
+    height: 28px;
+    cursor: pointer;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.stop-dot::after {
+    content: '';
+    width: 12px;
+    height: 12px;
+    background: var(--surface, #fff);
+    border: 2.5px solid var(--accent, #1d6aed);
+    border-radius: 50%;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+}
+
+/* ── Stop popup — uses same theme vars as bus popup ── */
+.stop-popup {
+    padding: 6px 8px;
+    font-size: 0.8rem;
+    line-height: 1.5;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+}
+.stop-popup-name {
+    font-weight: 700;
+    margin-bottom: 2px;
+}
+.stop-popup-schedule {
+    color: var(--accent, #1d6aed);
+    font-size: 0.78rem;
+}
+.stop-popup-detail {
+    color: var(--text-muted, #6b7280);
+    font-size: 0.72rem;
+}
+.stop-popup-walk {
+    color: #2e7d32;
+    font-size: 0.75rem;
+    font-weight: 600;
+    margin-top: 3px;
+    padding-top: 3px;
+    border-top: 1px solid var(--border, #d0d5dd);
+}
 

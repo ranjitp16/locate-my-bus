@@ -96,9 +96,14 @@
 
     <div class="d-flex align-items-center justify-content-between mb-4">
         <h4 class="fw-semibold mb-0">Poll Monitor</h4>
-        <button class="btn btn-sm" id="refresh-btn" style="background:var(--surface-alt);color:var(--text);border:1px solid var(--border);">
-            <i class="fa-solid fa-rotate-right me-1"></i>Refresh
-        </button>
+        <div class="d-flex gap-2">
+            <button class="btn btn-sm" id="refresh-btn" style="background:var(--surface-alt);color:var(--text);border:1px solid var(--border);">
+                <i class="fa-solid fa-rotate-right me-1"></i>Refresh
+            </button>
+            <button class="btn btn-sm" id="refresh-all-btn" style="background:var(--danger);color:#fff;border:1px solid var(--danger);">
+                <i class="fa-solid fa-arrows-rotate me-1"></i>Refresh All Agencies
+            </button>
+        </div>
     </div>
 
     <ul class="nav nav-tabs mb-4" id="dashTabs" role="tablist">
@@ -356,6 +361,38 @@
         authFetch('/api/dashboard/stats').then(r => r.json()).then(renderStats).catch(() => {});
         loadIterations();
         if (analyticsLoaded) { analyticsLoaded = false; loadAnalytics(); }
+    });
+
+    /* ── Refresh All Agencies ── */
+    document.getElementById('refresh-all-btn').addEventListener('click', async () => {
+        const btn = document.getElementById('refresh-all-btn');
+        if (!confirm('This will purge all data and re-onboard all agencies from their GTFS feeds. Continue?')) return;
+        const origHtml = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<div class="spinner-border spinner-border-sm" role="status"></div> Refreshing…';
+        try {
+            const r = await fetch('/api/agencies/refresh', {
+                method: 'POST',
+                headers: { 'x-access-key': accessKey },
+            });
+            const result = await r.json();
+            if (r.ok) {
+                const msg = 'Refreshed ' + result.refreshed + ' agencies.' +
+                    (result.errors.length ? ' Errors: ' + result.errors.length : '');
+                alert(msg);
+                // Reload dashboard data
+                authFetch('/api/dashboard/stats').then(r => r.json()).then(renderStats).catch(() => {});
+                loadIterations();
+                if (analyticsLoaded) { analyticsLoaded = false; loadAnalytics(); }
+            } else {
+                alert('Refresh failed: ' + (result.error || r.status));
+            }
+        } catch (err) {
+            alert('Network error during refresh.');
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = origHtml;
+        }
     });
 
     /* ── Raw tab: drill-down modal ── */

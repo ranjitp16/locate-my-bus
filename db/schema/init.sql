@@ -127,3 +127,33 @@ DROP INDEX IF EXISTS idx_fe_execution_time;
 ALTER TABLE public.feed_execution DROP COLUMN IF EXISTS execution_time_us;
 ALTER TABLE public.feed_execution ADD COLUMN execution_time_us BIGINT GENERATED ALWAYS AS (program_end_us - program_start_us) STORED;
 CREATE INDEX IF NOT EXISTS idx_fe_execution_time ON public.feed_execution (execution_time_us DESC);
+
+CREATE TABLE IF NOT EXISTS public.stop (
+    id                  VARCHAR(45)         NOT NULL,
+    agency_id           UUID                NOT NULL,
+    code                VARCHAR(45),
+    name                VARCHAR(500),
+    description         VARCHAR(1000),
+    lat                 DOUBLE PRECISION,
+    lon                 DOUBLE PRECISION,
+    location_type       VARCHAR(10),
+    wheelchair_boarding VARCHAR(10),
+    PRIMARY KEY (agency_id, id),
+    CONSTRAINT fk_agency FOREIGN KEY (agency_id) REFERENCES public.agency (id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS public.stop_time (
+    agency_id       UUID            NOT NULL,
+    trip_id         VARCHAR(45)     NOT NULL,
+    stop_id         VARCHAR(45)     NOT NULL,
+    arrival_time    VARCHAR(10),
+    departure_time  VARCHAR(10),
+    stop_sequence   VARCHAR(10)     NOT NULL,
+    pickup_type     VARCHAR(10),
+    drop_off_type   VARCHAR(10),
+    timepoint       VARCHAR(10),
+    PRIMARY KEY (agency_id, trip_id, stop_id, stop_sequence),
+    CONSTRAINT fk_agency FOREIGN KEY (agency_id) REFERENCES public.agency (id) ON DELETE CASCADE,
+    CONSTRAINT fk_trip   FOREIGN KEY (agency_id, trip_id) REFERENCES public.trip (agency_id, id) ON DELETE CASCADE,
+    CONSTRAINT fk_stop   FOREIGN KEY (agency_id, stop_id) REFERENCES public.stop (agency_id, id) ON DELETE CASCADE
+);

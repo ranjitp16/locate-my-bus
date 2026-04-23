@@ -24,6 +24,14 @@
     // Currently open popup (at most one at a time)
     let _openPopup = null;
 
+    // Stop markers (shown when a bus is pinned)
+    let _stopMarkers = []; // array of { marker, popup }
+    let _openStopPopup = null; // at most one stop popup open at a time
+
+    // Walking path SVG overlay (user → nearest stop)
+    let _walkSvgEl     = null;
+    let _walkSvgCoords = null;
+
     // SVG overlay for route animation (replaces WebGL LineLayer approach)
     let _routeSvgEl     = null;  // <svg> element
     let _routeSvgCoords = null;  // [[lng, lat], ...] for reprojection on map move
@@ -156,6 +164,47 @@
         _routeSvgCoords = null;
     }
 
+    // ── Walking path SVG overlay (user → nearest stop, green) ───────────────
+
+    function _updateWalkSvg() {
+        if (!_walkSvgEl || !_walkSvgCoords) return;
+        var pixels = _map.positionsToPixels(_walkSvgCoords);
+        if (!pixels || pixels.length < 2) return;
+        var d = 'M ' + pixels.map(function (p) {
+            return p[0].toFixed(1) + ',' + p[1].toFixed(1);
+        }).join(' L ');
+        _walkSvgEl.querySelector('.walk-base').setAttribute('d', d);
+        _walkSvgEl.querySelector('.walk-dash').setAttribute('d', d);
+    }
+
+    function _createWalkSvg(coords) {
+        _clearWalkSvg();
+        _walkSvgCoords = coords;
+        var svg = _svgEl('svg', {});
+        svg.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:visible;';
+        var base = _svgEl('path', { fill: 'none', stroke: '#2e7d32', 'stroke-width': '4', 'stroke-opacity': '0.4', class: 'walk-base' });
+        var dash = _svgEl('path', { fill: 'none', stroke: '#2e7d32', 'stroke-width': '4', 'stroke-dasharray': '12 8', class: 'walk-dash' });
+        dash.style.animation = 'dash-flow 1.8s linear infinite';
+        svg.appendChild(base);
+        svg.appendChild(dash);
+        var container = _map.getCanvasContainer();
+        var markerContainer = container.querySelector('.marker-collection-container');
+        if (markerContainer) { container.insertBefore(svg, markerContainer); }
+        else { container.appendChild(svg); }
+        _walkSvgEl = svg;
+        _map.events.add('move', _updateWalkSvg);
+        _updateWalkSvg();
+    }
+
+    function _clearWalkSvg() {
+        if (_walkSvgEl) {
+            _map.events.remove('move', _updateWalkSvg);
+            _walkSvgEl.remove();
+            _walkSvgEl = null;
+        }
+        _walkSvgCoords = null;
+    }
+
     // ── Route-following animation helpers ───────────────────────────────────
 
     function _segDist(a, b) {
@@ -242,7 +291,10 @@
                     if (typeof url === 'string' && url.indexOf('atlas.microsoft.com') !== -1) {
                         var u = new URL(url);
                         u.searchParams.delete('subscription-key');
-                        return { url: window.location.origin + '/api/azure-maps' + u.pathname + u.search };
+                        return {
+                            url: window.location.origin + '/api/azure-maps' + u.pathname + u.search,
+                            headers: { 'X-Azure-Maps-Proxy': '1' },
+                        };
                     }
                     return { url: url };
                 },
@@ -317,21 +369,21 @@
                     const deg      = (v.head_bearing != null && Number.isFinite(v.head_bearing))
                         ? v.head_bearing + 90 : 0;
                     const age      = Math.round((Date.now() - Date.parse(v.timestamp)) / 1000);
-                    const distLine = (userLat != null)
-                        ? ('<br><b>Distance:</b> ' + (function () {
-                            const d = _haversineMeters(userLat, userLng, v.lat, v.lon);
-                            return d < 1000 ? Math.round(d) + 'm' : (d / 1000).toFixed(1) + 'km';
-                        }()) + ' away')
-                        : '';
+                    const speedText = v.speed != null ? _escapeHtml(v.speed) : '—';
+                    const bearingText = v.head_bearing != null ? _escapeHtml(v.head_bearing) + '°' : '—';
+                    const distText = (userLat != null) ? (function () {
+                        const d = _haversineMeters(userLat, userLng, v.lat, v.lon);
+                        return d < 1000 ? Math.round(d) + 'm' : (d / 1000).toFixed(1) + 'km';
+                    }()) : null;
                     const popupHtml =
                         '<div style="padding:6px 8px;font-size:0.82rem;line-height:1.6;">' +
                         '<b>Trip:</b> '    + _escapeHtml(v.trip_id)    + '<br>' +
                         '<b>Route:</b> '   + _escapeHtml(v.route_id)   + '<br>' +
                         '<b>Vehicle:</b> ' + _escapeHtml(v.vehicle_id) + '<br>' +
-                        '<b>Speed:</b> '   + (v.speed != null ? _escapeHtml(v.speed) : '—') + ' m/s<br>' +
-                        '<b>Bearing:</b> ' + (v.head_bearing != null ? _escapeHtml(v.head_bearing) + '°' : '—') + '<br>' +
+                        '<b>Speed:</b> <span data-field="speed">'   + speedText + '</span> m/s<br>' +
+                        '<b>Bearing:</b> <span data-field="bearing">' + bearingText + '</span><br>' +
                         '<b>Updated:</b> <span class="age-counter" data-ts="' + Date.parse(v.timestamp) + '">' + age + '</span>s ago' +
-                        distLine + '</div>';
+                        (distText != null ? '<br><b>Distance:</b> <span data-field="distance">' + distText + '</span> away' : '') + '</div>';
 
                     if (_busMarkerMap[vid]) {
                         // ── Reuse existing marker ──
@@ -348,10 +400,25 @@
                         } catch (_) {}
 
                         if (isPinnedBus) {
-                            // Update timestamp on the live age-counter so the interval picks it up
+                            // Update live fields in-place so the age counter DOM reference stays valid
                             try {
-                                const ageEl = document.querySelector('.popup-content-container .age-counter');
-                                if (ageEl) ageEl.dataset.ts = String(Date.parse(v.timestamp));
+                                const container = document.querySelector('.popup-content-container, .atlas-popup-content-container');
+                                if (container) {
+                                    const ageEl = container.querySelector('.age-counter');
+                                    if (ageEl) ageEl.dataset.ts = String(Date.parse(v.timestamp));
+                                    const speedEl = container.querySelector('[data-field="speed"]');
+                                    if (speedEl) speedEl.textContent = speedText;
+                                    const bearEl = container.querySelector('[data-field="bearing"]');
+                                    if (bearEl) bearEl.textContent = bearingText;
+                                    const distEl = container.querySelector('[data-field="distance"]');
+                                    if (distEl && distText != null) {
+                                        distEl.textContent = distText;
+                                    } else if (!distEl && distText != null) {
+                                        const inner = container.querySelector('div');
+                                        if (inner) inner.insertAdjacentHTML('beforeend',
+                                            '<br><b>Distance:</b> <span data-field="distance">' + _escapeHtml(distText) + '</span> away');
+                                    }
+                                }
                             } catch (_) {}
                         }
 
@@ -489,6 +556,187 @@
             _whenReady(function () {
                 if (_locMarker) { _map.markers.remove(_locMarker); _locMarker = null; }
                 if (_locSource) _locSource.clear();
+            });
+        },
+
+        // ── Stop markers ────────────────────────────────────────────────────
+
+        updateStopMarkers: function (stops, userLat, userLng) {
+            _whenReady(function () {
+                // Clear any existing stop markers first
+                _stopMarkers.forEach(function (s) {
+                    _map.markers.remove(s.marker);
+                    s.popup.close();
+                });
+                _stopMarkers = [];
+                if (_openStopPopup) { _openStopPopup.close(); _openStopPopup = null; }
+
+                if (!stops || !stops.length) return;
+
+                stops.forEach(function (stop, idx) {
+                    // Format arrival time for display
+                    var schedText = '';
+                    if (stop.arrival_time) {
+                        var parts = stop.arrival_time.split(':');
+                        var h = parseInt(parts[0], 10);
+                        var m = parts[1];
+                        // Handle GTFS times past midnight (e.g., 25:30:00)
+                        var suffix = h >= 12 && h < 24 ? 'PM' : 'AM';
+                        if (h >= 24) { h -= 24; suffix = 'AM'; }
+                        if (h > 12) { h -= 12; }
+                        else if (h === 0) { h = 12; }
+                        schedText = h + ':' + m + ' ' + suffix;
+                    }
+
+                    // Build popup content — force fixed width so Atlas container doesn't expand
+                    var html = '<div class="stop-popup" style="width:220px;white-space:normal;">';
+                    html += '<div class="stop-popup-name">' + _escapeHtml(stop.name || 'Unnamed Stop') + '</div>';
+                    if (schedText) {
+                        html += '<div class="stop-popup-schedule">Scheduled: ' + _escapeHtml(schedText) + '</div>';
+                    }
+                    if (stop.code) {
+                        html += '<div class="stop-popup-detail">Stop code: ' + _escapeHtml(stop.code) + '</div>';
+                    }
+                    if (stop.wheelchair_boarding === '1') {
+                        html += '<div class="stop-popup-detail">&#9855; Wheelchair accessible</div>';
+                    }
+                    html += '</div><!-- stop-popup-end -->';
+
+                    var popup = new atlas.Popup({
+                        content: html,
+                        position: [stop.lon, stop.lat],
+                        pixelOffset: [0, -12],
+                        closeButton: true,
+                    });
+
+                    var marker = new atlas.HtmlMarker({
+                        htmlContent: '<div class="stop-dot"></div>',
+                        position: [stop.lon, stop.lat],
+                        anchor: 'center',
+                    });
+
+                    _map.markers.add(marker);
+
+                    _map.events.add('click', marker, function () {
+                        _suppressMapClick = true;
+                        setTimeout(function () { _suppressMapClick = false; }, 0);
+                        if (_openStopPopup === popup) {
+                            popup.close();
+                            _openStopPopup = null;
+                        } else {
+                            if (_openStopPopup) { _openStopPopup.close(); }
+                            popup.open(_map);
+                            _openStopPopup = popup;
+                        }
+                        // Do NOT close the pinned bus popup (_openPopup is untouched)
+                    });
+
+                    _map.events.add('close', popup, function () {
+                        if (_openStopPopup === popup) _openStopPopup = null;
+                    });
+
+                    _stopMarkers.push({ marker: marker, popup: popup });
+                });
+
+                // Auto-open nearest stop by walking path (1 API call).
+                // Strategy: get walking route to the closest-by-air stop, then find
+                // which stop is the first one the user would pass along that path.
+                if (userLat != null && userLng != null && _stopMarkers.length > 0) {
+                    // Find closest stop by straight-line
+                    var closestIdx = 0, closestDist = Infinity;
+                    for (var ci = 0; ci < stops.length; ci++) {
+                        if (!stops[ci].lat || !stops[ci].lon) continue;
+                        var d = _haversineMeters(userLat, userLng, stops[ci].lat, stops[ci].lon);
+                        if (d < closestDist) { closestDist = d; closestIdx = ci; }
+                    }
+
+                    var target = stops[closestIdx];
+                    var markersRef = _stopMarkers;
+                    var query = userLat + ',' + userLng + ':' + target.lat + ',' + target.lon;
+                    fetch('/api/azure-maps/route/directions/json?api-version=1.0&query=' +
+                        encodeURIComponent(query) + '&travelMode=pedestrian&routeType=shortest', {
+                        headers: { 'X-Azure-Maps-Proxy': '1' }
+                    })
+                    .then(function (r) { return r.json(); })
+                    .then(function (data) {
+                        if (!data.routes || !data.routes[0] || !data.routes[0].legs) return;
+                        // Build walking path from route points
+                        var pathPts = [];
+                        data.routes[0].legs.forEach(function (leg) {
+                            leg.points.forEach(function (p) { pathPts.push(p); });
+                        });
+                        if (!pathPts.length) return;
+
+                        // For each stop, find its minimum distance to any point on the
+                        // walking path. Then among stops within 150m of the path, pick
+                        // the one whose nearest path point is earliest (closest to user).
+                        var bestIdx = -1, bestPathPos = Infinity;
+                        for (var si = 0; si < stops.length; si++) {
+                            if (!stops[si].lat || !stops[si].lon) continue;
+                            var minDist = Infinity, minPos = Infinity;
+                            for (var pi = 0; pi < pathPts.length; pi++) {
+                                var dd = _haversineMeters(stops[si].lat, stops[si].lon, pathPts[pi].latitude, pathPts[pi].longitude);
+                                if (dd < minDist) { minDist = dd; minPos = pi; }
+                            }
+                            // Stop is "on the path" if within 150m of a path point
+                            if (minDist < 150 && minPos < bestPathPos) {
+                                bestPathPos = minPos;
+                                bestIdx = si;
+                            }
+                        }
+
+                        // Fall back to closest-by-air if no stop found on path
+                        if (bestIdx < 0) bestIdx = closestIdx;
+
+                        // Draw the walking path as a green SVG overlay
+                        var walkCoords = pathPts.map(function (p) { return [p.longitude, p.latitude]; });
+                        _createWalkSvg(walkCoords);
+
+                        if (markersRef[bestIdx]) {
+                            // Add walking distance and time to the popup
+                            var summary = data.routes[0].summary;
+                            var meters = summary.lengthInMeters;
+                            var secs = summary.travelTimeInSeconds;
+                            var distText = meters < 1000
+                                ? Math.round(meters) + 'm'
+                                : (meters / 1000).toFixed(1) + 'km';
+                            var timeText = secs < 60
+                                ? '< 1 min'
+                                : Math.round(secs / 60) + ' min';
+                            var walkInfo = '<div class="stop-popup-walk">'
+                                + '<span style="font-size:1.1rem;vertical-align:middle;">&#128694;</span> '
+                                + _escapeHtml(distText) + ' walk &middot; ~' + _escapeHtml(timeText)
+                                + '</div>';
+                            // Append walk info to existing popup content
+                            var existingContent = markersRef[bestIdx].popup.getOptions().content;
+                            var updated = existingContent.replace('</div><!-- stop-popup-end -->', walkInfo + '</div><!-- stop-popup-end -->');
+                            markersRef[bestIdx].popup.setOptions({ content: updated });
+
+                            if (_openStopPopup) { _openStopPopup.close(); }
+                            markersRef[bestIdx].popup.open(_map);
+                            _openStopPopup = markersRef[bestIdx].popup;
+                        }
+                    })
+                    .catch(function (err) {
+                        console.error('Route API failed, falling back to closest-by-air:', err);
+                        if (markersRef[closestIdx]) {
+                            markersRef[closestIdx].popup.open(_map);
+                            _openStopPopup = markersRef[closestIdx].popup;
+                        }
+                    });
+                }
+            });
+        },
+
+        clearStopMarkers: function () {
+            _whenReady(function () {
+                _clearWalkSvg();
+                _stopMarkers.forEach(function (s) {
+                    _map.markers.remove(s.marker);
+                    s.popup.close();
+                });
+                _stopMarkers = [];
+                if (_openStopPopup) { _openStopPopup.close(); _openStopPopup = null; }
             });
         },
     };
