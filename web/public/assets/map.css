@@ -211,11 +211,15 @@ body { overflow: hidden; }
 }
 
 /* ── Stop popup — uses same theme vars as bus popup ── */
+/* Constrain the Atlas popup container when it holds a stop popup */
+.popup-content-container:has(.stop-popup),
+.atlas-popup-content-container:has(.stop-popup) {
+    max-width: 240px !important;
+}
 .stop-popup {
     padding: 6px 8px;
     font-size: 0.8rem;
     line-height: 1.5;
-    max-width: 220px;
     word-wrap: break-word;
     overflow-wrap: break-word;
 }
