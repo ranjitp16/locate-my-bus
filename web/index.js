@@ -416,6 +416,28 @@ app.get('/api/shape/:agency_id/:trip_id', async (req, res) => {
     res.send({ trip_headsign: tripRows[0].trip_headsign, rows });
 });
 
+app.get('/api/stops/:agency_id/:trip_id', async (req, res) => {
+    const { agency_id, trip_id } = req.params;
+
+    try {
+        const { rows } = await pool.query(
+            `SELECT s.id AS stop_id, s.name, s.code, s.lat, s.lon,
+                    st.arrival_time, st.departure_time, st.stop_sequence,
+                    s.wheelchair_boarding
+             FROM public.stop_time st
+             JOIN public.stop s ON s.agency_id = st.agency_id AND s.id = st.stop_id
+             WHERE st.agency_id = $1 AND st.trip_id = $2
+             ORDER BY st.stop_sequence::int ASC`,
+            [agency_id, trip_id]
+        );
+
+        res.json(rows);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Failed to fetch stops.' });
+    }
+});
+
 app.listen(port, () => {
     console.log(`Example app listening on port ${port}`)
 })
