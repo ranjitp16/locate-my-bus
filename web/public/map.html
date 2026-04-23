@@ -51,6 +51,7 @@
             <input type="checkbox" id="running-only" checked>
             Running routes only
         </label>
+        <button id="poll-toggle-btn" title="Pause or resume live polling">⏸ Stop polling</button>
         <button id="locate-btn" title="Show my location on the map">◎ Show my location</button>
         <div id="location-error" role="alert" aria-live="assertive" aria-atomic="true" style="display:none;font-size:0.72rem;color:#e53935;flex-direction:column;gap:4px;">
             <span id="location-error-msg"></span>
@@ -378,6 +379,34 @@
             startCountdown();
         }, POLL_INTERVAL);
     }
+
+    /* ── Poll toggle ── */
+    let pollingPaused = false;
+    const pollToggleBtn = document.getElementById('poll-toggle-btn');
+    pollToggleBtn.addEventListener('click', function () {
+        if (pollingPaused) {
+            // Resume
+            pollingPaused = false;
+            pollToggleBtn.textContent = '⏸ Stop polling';
+            pollToggleBtn.classList.remove('active');
+            fetchLive();
+            startCountdown();
+            pollTimer = setInterval(() => {
+                fetchLive();
+                if (document.getElementById('running-only').checked) refreshRouteList(agencySelect.value);
+                startCountdown();
+            }, POLL_INTERVAL);
+        } else {
+            // Pause
+            pollingPaused = true;
+            clearInterval(pollTimer);
+            clearInterval(countdownTimer);
+            pollTimer = null;
+            pollToggleBtn.textContent = '▶ Resume polling';
+            pollToggleBtn.classList.add('active');
+            pollTimerEl.textContent = 'polling paused';
+        }
+    });
 
     /* ── Populate route select for a given agency ── */
     function loadRoutes(agencyId, restoreRoute = false) {

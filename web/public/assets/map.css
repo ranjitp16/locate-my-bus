@@ -189,6 +189,20 @@ body { overflow: hidden; }
 #locate-btn:hover { border-color: var(--accent); color: var(--accent); }
 #locate-btn.active { border-color: #2979ff; color: #2979ff; }
 
+#poll-toggle-btn {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 5px;
+    padding: 5px 8px;
+    font-family: inherit;
+    font-size: 0.8rem;
+    cursor: pointer;
+    text-align: left;
+}
+#poll-toggle-btn:hover { border-color: var(--accent); color: var(--accent); }
+#poll-toggle-btn.active { border-color: var(--danger, #dc2626); color: var(--danger, #dc2626); }
+
 /* ── Stop markers ── */
 .stop-dot {
     /* Invisible 28x28 tap target around the visible dot */
