@@ -516,7 +516,7 @@
 
         // ── Stop markers ────────────────────────────────────────────────────
 
-        updateStopMarkers: function (stops) {
+        updateStopMarkers: function (stops, userLat, userLng) {
             _whenReady(function () {
                 // Clear any existing stop markers first
                 _stopMarkers.forEach(function (s) {
@@ -528,7 +528,16 @@
 
                 if (!stops || !stops.length) return;
 
-                stops.forEach(function (stop) {
+                // Track nearest stop to user for auto-pin
+                var nearestIdx = -1;
+                var nearestDist = Infinity;
+
+                stops.forEach(function (stop, idx) {
+                    // Check if this is the nearest stop to the user
+                    if (userLat != null && userLng != null && stop.lat && stop.lon) {
+                        var d = _haversineMeters(userLat, userLng, stop.lat, stop.lon);
+                        if (d < nearestDist) { nearestDist = d; nearestIdx = idx; }
+                    }
                     // Format arrival time for display
                     var schedText = '';
                     if (stop.arrival_time) {
@@ -592,6 +601,13 @@
 
                     _stopMarkers.push({ marker: marker, popup: popup });
                 });
+
+                // Auto-open nearest stop popup if user location is available
+                if (nearestIdx >= 0 && _stopMarkers[nearestIdx]) {
+                    var nearest = _stopMarkers[nearestIdx];
+                    nearest.popup.open(_map);
+                    _openStopPopup = nearest.popup;
+                }
             });
         },
 

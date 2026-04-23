@@ -197,7 +197,7 @@
         fetch(`/api/stops/${agencyId}/${tripId}`)
             .then(r => r.json())
             .then(stops => {
-                if (stops.length) mapAdapter.updateStopMarkers(stops);
+                if (stops.length) mapAdapter.updateStopMarkers(stops, userLat, userLng);
             })
             .catch(err => console.error('Stops fetch failed:', err));
     }
