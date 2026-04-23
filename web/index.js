@@ -440,11 +440,11 @@ app.get('/api/stops/:agency_id/:trip_id', async (req, res) => {
 
 app.post('/api/agencies/refresh', authMiddleware, async (req, res) => {
     try {
-        // 1. Truncate all non-agency tables
-        await pool.query('TRUNCATE route, shape, shape_point, trip, stop, stop_time, live_vehicle_position, poll_iteration, feed_execution CASCADE');
-
-        // 2. Fetch all agencies
+        // 1. Capture agency list before truncating
         const { rows: agencies } = await pool.query('SELECT id, rt_feed_url, static_feed_url, api_key_in_header FROM public.agency');
+
+        // 2. Truncate ALL tables including agency (onBoardAgency creates fresh agency rows with new UUIDs)
+        await pool.query('TRUNCATE agency, route, shape, shape_point, trip, stop, stop_time, live_vehicle_position, poll_iteration, feed_execution CASCADE');
 
         const results = { refreshed: 0, errors: [] };
 

@@ -133,14 +133,14 @@
         pinnedVehicleId = null;
         manuallyPinned  = false;
         mapAdapter.closeOpenPopup();
-        mapAdapter.clearRoute();
+        clearRoute();
     });
 
     mapAdapter.onMarkerClick(function ({ vehicleId, lat, lon, tripId }) {
         if (pinnedVehicleId === vehicleId) {
             pinnedVehicleId = null;
             manuallyPinned  = false;
-            mapAdapter.clearRoute();
+            clearRoute();
         } else {
             pinnedVehicleId = vehicleId;
             manuallyPinned  = true;

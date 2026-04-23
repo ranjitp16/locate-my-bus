@@ -538,7 +538,7 @@
                         // Handle GTFS times past midnight (e.g., 25:30:00)
                         var suffix = h >= 12 && h < 24 ? 'PM' : 'AM';
                         if (h >= 24) { h -= 24; suffix = 'AM'; }
-                        else if (h > 12) { h -= 12; }
+                        if (h > 12) { h -= 12; }
                         else if (h === 0) { h = 12; }
                         schedText = h + ':' + m + ' ' + suffix;
                     }
