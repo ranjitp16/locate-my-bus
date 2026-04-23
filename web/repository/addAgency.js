@@ -267,4 +267,48 @@ const handleWriteFromStops = async (client, fileName, tableName, decompressed, l
     return stopIdsByAgency;
 };
 
-module.exports = { handleWriteFromAgency, handleWriteFromRoutes, handleWriteFromShapes, handleWriteFromTrip, handleWriteFromStops };
+const handleWriteFromStopTimes = async (client, fileName, tableName, decompressed, listOfAgencyGuids, stopIdsByAgency, static_feed_url) => {
+    console.log("INITIATING STOP_TIME WRITES: " + static_feed_url);
+
+    let { lines, header, sanitized_table_headers_no_id } = await getFileContentsFromTrip(client, decompressed, fileName, tableName, static_feed_url);
+
+    const columns = [...header.filter(h => sanitized_table_headers_no_id.some(sh => sh.column_name === h))];
+    columns.push("agency_id");
+
+    const indexOfTrip = header.indexOf('trip_id');
+    const indexOfStop = header.indexOf('stop_id');
+
+    for (const { uuid } of listOfAgencyGuids) {
+        const agency_id = uuid;
+        const rows = [];
+
+        // Load valid trip IDs for this agency
+        const tripResult = await client.query('SELECT id FROM public.trip WHERE agency_id = $1', [agency_id]);
+        const validTrips = new Set(tripResult.rows.map(r => r.id));
+
+        const validStops = stopIdsByAgency.get(agency_id) || new Set();
+
+        for (const line of lines) {
+            const values = line.split(',').map(v => v.trim());
+
+            const tripId = values[indexOfTrip];
+            const stopId = values[indexOfStop];
+            if (!validTrips.has(tripId)) continue;
+            if (!validStops.has(stopId)) continue;
+
+            const params = [];
+            header.forEach((h, i) => {
+                if (sanitized_table_headers_no_id.some(sh => sh.column_name === h)) {
+                    params.push(values[i] || null);
+                }
+            });
+            params.push(agency_id);
+            rows.push(params);
+        }
+
+        if (rows.length > 0) await bulkInsert(client, tableName, columns, rows);
+    }
+    console.log("COMPLETED STOP_TIME WRITES: " + static_feed_url);
+};
+
+module.exports = { handleWriteFromAgency, handleWriteFromRoutes, handleWriteFromShapes, handleWriteFromTrip, handleWriteFromStops, handleWriteFromStopTimes };
