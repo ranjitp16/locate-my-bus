@@ -1,7 +1,7 @@
 const { Pool } = require('pg');
 const request = require('request');
 const unzip = require('unzipper');
-const { handleWriteFromAgency, handleWriteFromRoutes, handleWriteFromShapes, handleWriteFromTrip } = require('../repository/addAgency.js');
+const { handleWriteFromAgency, handleWriteFromRoutes, handleWriteFromShapes, handleWriteFromTrip, handleWriteFromStops, handleWriteFromStopTimes } = require('../repository/addAgency.js');
 
 const pool = new Pool({
     connectionString: `postgresql://${process.env.POSTGRES_USER}:${process.env.POSTGRES_PASSWORD}@${process.env.POSTGRES_HOST}:5432/${process.env.POSTGRES_DB}`,
@@ -25,6 +25,8 @@ const onBoardAgency = async (rt_feed_url, static_feed_url, api_key) => {
         let listOfGuidFromRoute = await handleWriteFromRoutes(client, 'routes.txt', 'route', decompressed, listOfGuid, static_feed_url);
         await handleWriteFromShapes(client, 'shapes.txt', 'shape_point', decompressed, listOfGuid, static_feed_url);
         await handleWriteFromTrip(client, 'trips.txt', 'trip', decompressed, listOfGuid, listOfGuidFromRoute, static_feed_url);
+        let stopIdsByAgency = await handleWriteFromStops(client, 'stops.txt', 'stop', decompressed, listOfGuid, static_feed_url);
+        await handleWriteFromStopTimes(client, 'stop_times.txt', 'stop_time', decompressed, listOfGuid, stopIdsByAgency, static_feed_url);
 
         await client.query('COMMIT'); // Commit transaction
 
