@@ -216,6 +216,8 @@ body { overflow: hidden; }
     font-size: 0.8rem;
     line-height: 1.5;
     max-width: 220px;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
 }
 .stop-popup-name {
     font-weight: 700;
