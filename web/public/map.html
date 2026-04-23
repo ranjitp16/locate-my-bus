@@ -176,6 +176,7 @@
 
     function clearRoute() {
         mapAdapter.clearRoute();
+        mapAdapter.clearStopMarkers();
     }
 
     function drawRoute(agencyId, tripId) {
@@ -191,6 +192,14 @@
                 mapAdapter.drawRoute(sorted);
             })
             .catch(err => console.error('Shape fetch failed:', err));
+
+        // Fetch stops in parallel
+        fetch(`/api/stops/${agencyId}/${tripId}`)
+            .then(r => r.json())
+            .then(stops => {
+                if (stops.length) mapAdapter.updateStopMarkers(stops);
+            })
+            .catch(err => console.error('Stops fetch failed:', err));
     }
 
     const pollTimerEl = document.getElementById('poll-timer');
