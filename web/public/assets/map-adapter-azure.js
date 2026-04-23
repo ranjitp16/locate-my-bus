@@ -24,6 +24,10 @@
     // Currently open popup (at most one at a time)
     let _openPopup = null;
 
+    // Stop markers (shown when a bus is pinned)
+    let _stopMarkers = []; // array of { marker, popup }
+    let _openStopPopup = null; // at most one stop popup open at a time
+
     // SVG overlay for route animation (replaces WebGL LineLayer approach)
     let _routeSvgEl     = null;  // <svg> element
     let _routeSvgCoords = null;  // [[lng, lat], ...] for reprojection on map move
@@ -507,6 +511,98 @@
             _whenReady(function () {
                 if (_locMarker) { _map.markers.remove(_locMarker); _locMarker = null; }
                 if (_locSource) _locSource.clear();
+            });
+        },
+
+        // ── Stop markers ────────────────────────────────────────────────────
+
+        updateStopMarkers: function (stops) {
+            _whenReady(function () {
+                // Clear any existing stop markers first
+                _stopMarkers.forEach(function (s) {
+                    _map.markers.remove(s.marker);
+                    s.popup.close();
+                });
+                _stopMarkers = [];
+                if (_openStopPopup) { _openStopPopup.close(); _openStopPopup = null; }
+
+                if (!stops || !stops.length) return;
+
+                stops.forEach(function (stop) {
+                    // Format arrival time for display
+                    var schedText = '';
+                    if (stop.arrival_time) {
+                        var parts = stop.arrival_time.split(':');
+                        var h = parseInt(parts[0], 10);
+                        var m = parts[1];
+                        // Handle GTFS times past midnight (e.g., 25:30:00)
+                        var suffix = h >= 12 && h < 24 ? 'PM' : 'AM';
+                        if (h >= 24) { h -= 24; suffix = 'AM'; }
+                        else if (h > 12) { h -= 12; }
+                        else if (h === 0) { h = 12; }
+                        schedText = h + ':' + m + ' ' + suffix;
+                    }
+
+                    // Build popup content
+                    var html = '<div class="stop-popup">';
+                    html += '<div class="stop-popup-name">' + _escapeHtml(stop.name || 'Unnamed Stop') + '</div>';
+                    if (schedText) {
+                        html += '<div class="stop-popup-schedule">Scheduled: ' + _escapeHtml(schedText) + '</div>';
+                    }
+                    if (stop.code) {
+                        html += '<div class="stop-popup-detail">Stop code: ' + _escapeHtml(stop.code) + '</div>';
+                    }
+                    if (stop.wheelchair_boarding === '1') {
+                        html += '<div class="stop-popup-detail">&#9855; Wheelchair accessible</div>';
+                    }
+                    html += '</div>';
+
+                    var popup = new atlas.Popup({
+                        content: html,
+                        position: [stop.lon, stop.lat],
+                        pixelOffset: [0, -12],
+                        closeButton: true,
+                    });
+
+                    var marker = new atlas.HtmlMarker({
+                        htmlContent: '<div class="stop-dot"></div>',
+                        position: [stop.lon, stop.lat],
+                        anchor: 'center',
+                    });
+
+                    _map.markers.add(marker);
+
+                    _map.events.add('click', marker, function () {
+                        _suppressMapClick = true;
+                        setTimeout(function () { _suppressMapClick = false; }, 0);
+                        if (_openStopPopup === popup) {
+                            popup.close();
+                            _openStopPopup = null;
+                        } else {
+                            if (_openStopPopup) { _openStopPopup.close(); }
+                            popup.open(_map);
+                            _openStopPopup = popup;
+                        }
+                        // Do NOT close the pinned bus popup (_openPopup is untouched)
+                    });
+
+                    _map.events.add('close', popup, function () {
+                        if (_openStopPopup === popup) _openStopPopup = null;
+                    });
+
+                    _stopMarkers.push({ marker: marker, popup: popup });
+                });
+            });
+        },
+
+        clearStopMarkers: function () {
+            _whenReady(function () {
+                _stopMarkers.forEach(function (s) {
+                    _map.markers.remove(s.marker);
+                    s.popup.close();
+                });
+                _stopMarkers = [];
+                if (_openStopPopup) { _openStopPopup.close(); _openStopPopup = null; }
             });
         },
     };

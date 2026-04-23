@@ -189,3 +189,44 @@ body { overflow: hidden; }
 #locate-btn:hover { border-color: var(--accent); color: var(--accent); }
 #locate-btn.active { border-color: #2979ff; color: #2979ff; }
 
+/* ── Stop markers ── */
+.stop-dot {
+    /* Invisible 28x28 tap target around the visible dot */
+    width: 28px;
+    height: 28px;
+    cursor: pointer;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.stop-dot::after {
+    content: '';
+    width: 12px;
+    height: 12px;
+    background: var(--surface, #fff);
+    border: 2.5px solid var(--accent, #1d6aed);
+    border-radius: 50%;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+}
+
+/* ── Stop popup — uses same theme vars as bus popup ── */
+.stop-popup {
+    padding: 6px 8px;
+    font-size: 0.8rem;
+    line-height: 1.5;
+    max-width: 220px;
+}
+.stop-popup-name {
+    font-weight: 700;
+    margin-bottom: 2px;
+}
+.stop-popup-schedule {
+    color: var(--accent, #1d6aed);
+    font-size: 0.78rem;
+}
+.stop-popup-detail {
+    color: var(--text-muted, #6b7280);
+    font-size: 0.72rem;
+}
+
