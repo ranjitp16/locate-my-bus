@@ -129,6 +129,11 @@ Small dot markers — white circles with blue border placed along the route at e
 - Clicking a stop marker does NOT close the pinned bus popup — both popups can be visible simultaneously
 - Stop markers are `atlas.HtmlMarker` instances for consistency with existing bus markers
 
+### Theme awareness
+
+- Stop popups must respect the current light/dark theme (`data-theme` attribute on `<html>`, stored in `localStorage`)
+- Background, text color, and border colors must adapt to match the existing bus popup theme treatment
+
 ### Mobile first
 
 - Dot markers must have adequate tap target size for touch interaction
