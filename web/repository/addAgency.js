@@ -22,7 +22,7 @@ const handleWriteFromAgency = async (client, fileName, tableName, decompressed, 
     console.log("INITIATING AGENCY WRITES: " + static_feed_url);
     var { lines, header, sanitized_table_headers_no_id } = await getFileContents(client, decompressed, fileName, tableName, tableName, static_feed_url);
 
-    const columns = [...header.map(h => h.replace(`${tableName}_`, '')).filter(h => sanitized_table_headers_no_id.some(sh => sh.column_name === h)), 'rt_feed_url', 'static_feed_url', 'api_key_in_header'];
+    const columns = ['id', ...header.map(h => h.replace(`${tableName}_`, '')).filter(h => h !== 'id' && sanitized_table_headers_no_id.some(sh => sh.column_name === h)), 'rt_feed_url', 'static_feed_url', 'api_key_in_header'];
     const rows = [];
     const listToReturn = [];
 
@@ -189,7 +189,7 @@ const handleWriteFromShapes = async (client, fileName, tableName, decompressed, 
 const getFileContents = async (client, decompressed, fileName, tableName, headerSalt, static_feed_url) => {
     const file = decompressed.files.find(f => f.path === fileName);
     const content = await file.buffer();
-    const lines = content.toString().split('\n').filter(l => l.trim());
+    const lines = content.toString().replace(/^\uFEFF/, '').split('\n').filter(l => l.trim());
     if (lines.length < 2) {
         throw new Error(`Invalid GTFS feed: ${fileName} must contain at least a header and one data line.`);
     }
@@ -205,13 +205,12 @@ const getFileContents = async (client, decompressed, fileName, tableName, header
     const sanitized_table_headers_no_id = rows.filter(r => r.column_name !== 'rt_feed_url' && r.column_name !== 'static_feed_url' && r.column_name !== 'api_key_in_header');
     const sanitized_table_headers = rows.filter(r => r.column_name !== 'id' && r.column_name !== 'rt_feed_url' && r.column_name !== 'static_feed_url' && r.column_name !== 'api_key_in_header');
 
-    // Validate that the feed contains all required columns (except id, rt_feed_url, static_feed_url)
+    // Validate that the feed contains all expected columns (except id, rt_feed_url, static_feed_url)
     sanitized_table_headers.forEach(h => {
-
         if (tableName !== "agency" && h.column_name === 'agency_id') return;
-        // look into this condition, not sure if this is what i meant. We want to ignore agency_id for agencies.txt
-        if (!s_header.includes(`${headerSalt}_${h.column_name}`)) {
-            console.log(`File ${fileName} in the GTFS feed ${static_feed_url} is missing required column: ${h.column_name} for table ${tableName}`);
+        const expectedHeader = `${headerSalt}_${h.column_name}`;
+        if (!header.includes(expectedHeader)) {
+            console.log(`File ${fileName} in the GTFS feed ${static_feed_url} is missing column: ${h.column_name} for table ${tableName}`);
         }
     });
 
@@ -221,7 +220,7 @@ const getFileContents = async (client, decompressed, fileName, tableName, header
 const getFileContentsFromTrip = async (client, decompressed, fileName, tableName, static_feed_url) => {
     const file = decompressed.files.find(f => f.path === fileName);
     const content = await file.buffer();
-    const lines = content.toString().split('\n').filter(l => l.trim());
+    const lines = content.toString().replace(/^\uFEFF/, '').split('\n').filter(l => l.trim());
     if (lines.length < 2) {
         throw new Error(`Invalid GTFS feed: ${fileName} must contain at least a header and one data line.`);
     }
