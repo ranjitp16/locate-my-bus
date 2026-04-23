@@ -230,4 +230,12 @@ body { overflow: hidden; }
     color: var(--text-muted, #6b7280);
     font-size: 0.72rem;
 }
+.stop-popup-walk {
+    color: #2e7d32;
+    font-size: 0.75rem;
+    font-weight: 600;
+    margin-top: 3px;
+    padding-top: 3px;
+    border-top: 1px solid var(--border, #d0d5dd);
+}
 
