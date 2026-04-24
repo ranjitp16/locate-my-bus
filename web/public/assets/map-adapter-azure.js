@@ -378,7 +378,7 @@
                         return d < 1000 ? Math.round(d) + 'm' : (d / 1000).toFixed(1) + 'km';
                     }()) : null;
                     const popupHtml =
-                        '<div style="padding:6px 8px;font-size:0.82rem;line-height:1.6;">' +
+                        '<div style="padding:6px 22px 6px 8px;font-size:0.82rem;line-height:1.6;">' +
                         '<b>' + _escapeHtml(v.route_id) + '</b> — ' +
                         '<span class="age-counter" data-ts="' + Date.parse(v.timestamp) + '">' + age + '</span>s ago' +
                         (distText != null ? ', <span data-field="distance">' + distText + '</span> away' : '') +
