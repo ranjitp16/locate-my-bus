@@ -27,6 +27,7 @@
     // Stop markers (shown when a bus is pinned)
     let _stopMarkers = []; // array of { marker, popup }
     let _openStopPopup = null; // at most one stop popup open at a time
+    let _stopClickPinned = false; // true when the open stop popup was click-pinned
 
     // Walking path SVG overlay (user → nearest stop)
     let _walkSvgEl     = null;
@@ -622,43 +623,43 @@
 
                     _map.markers.add(marker);
 
-                    var clickPinned = false;
-
                     _map.events.add('click', marker, function () {
                         _suppressMapClick = true;
                         setTimeout(function () { _suppressMapClick = false; }, 0);
-                        if (_openStopPopup === popup && clickPinned) {
-                            // Already click-pinned — unpin and close
+                        if (_openStopPopup === popup && _stopClickPinned) {
                             popup.close();
                             _openStopPopup = null;
-                            clickPinned = false;
+                            _stopClickPinned = false;
                         } else {
-                            // Hover-open or closed — pin it open
                             if (_openStopPopup && _openStopPopup !== popup) { _openStopPopup.close(); }
                             if (_openStopPopup !== popup) popup.open(_map);
                             _openStopPopup = popup;
-                            clickPinned = true;
+                            _stopClickPinned = true;
                         }
                     });
 
                     _map.events.add('mouseover', marker, function () {
                         if (_openStopPopup !== popup) {
-                            if (_openStopPopup && !clickPinned) { _openStopPopup.close(); }
-                            popup.open(_map);
-                            _openStopPopup = popup;
-                            clickPinned = false;
+                            if (_openStopPopup && !_stopClickPinned) { _openStopPopup.close(); }
+                            if (!_stopClickPinned) {
+                                popup.open(_map);
+                                _openStopPopup = popup;
+                            }
                         }
                     });
 
                     _map.events.add('mouseout', marker, function () {
-                        if (_openStopPopup === popup && !clickPinned) {
+                        if (_openStopPopup === popup && !_stopClickPinned) {
                             popup.close();
                             _openStopPopup = null;
                         }
                     });
 
                     _map.events.add('close', popup, function () {
-                        if (_openStopPopup === popup) _openStopPopup = null;
+                        if (_openStopPopup === popup) {
+                            _openStopPopup = null;
+                            _stopClickPinned = false;
+                        }
                     });
 
                     _stopMarkers.push({ marker: marker, popup: popup });
