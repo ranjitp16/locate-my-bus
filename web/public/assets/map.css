@@ -232,6 +232,24 @@ body { overflow: hidden; }
 #map-left-controls button:hover {
     background: #fff;
 }
+#map-left-controls button[data-tip] { position: relative; }
+#map-left-controls button[data-tip]::after {
+    content: attr(data-tip);
+    position: absolute;
+    left: calc(100% + 8px);
+    top: 50%;
+    transform: translateY(-50%);
+    background: rgba(0,0,0,0.8);
+    color: #fff;
+    font-size: 0.72rem;
+    padding: 3px 7px;
+    border-radius: 4px;
+    white-space: nowrap;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+#map-left-controls button[data-tip]:hover::after { opacity: 1; }
 #map-left-controls button.active {
     background: #fff;
     box-shadow: 0 0 0 2px #2979ff, 0 1px 4px rgba(0,0,0,0.25);
