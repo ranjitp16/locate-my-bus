@@ -387,7 +387,6 @@
                         '&#9656; Details</div>' +
                         '<div data-bus-details style="display:none;">' +
                         '<b>Trip:</b> '    + _escapeHtml(v.trip_id)    + '<br>' +
-                        '<b>Route:</b> '   + _escapeHtml(v.route_id)   + '<br>' +
                         '<b>Vehicle:</b> ' + _escapeHtml(v.vehicle_id) + '<br>' +
                         '<b>Bearing:</b> <span data-field="bearing">' + bearingText + '</span>' +
                         '</div></div>';
@@ -419,6 +418,10 @@
                                     const distEl = container.querySelector('[data-field="distance"]');
                                     if (distEl && distText != null) {
                                         distEl.textContent = distText;
+                                    } else if (!distEl && distText != null) {
+                                        const sEl = container.querySelector('[data-field="speed"]');
+                                        if (sEl) sEl.insertAdjacentHTML('beforebegin',
+                                            '<span data-field="distance">' + _escapeHtml(distText) + '</span> away, ');
                                     }
                                 }
                             } catch (_) {}
