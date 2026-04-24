@@ -275,7 +275,6 @@
     /* ── User location ── */
     let locationWatchId = null;
     let locationMarker  = null;
-    let droppedPin      = false;
     const dropPinBtn       = document.getElementById('drop-pin-btn');
     const myLocationBtn    = document.getElementById('my-location-btn');
     const stopTrackingBtn  = document.getElementById('stop-tracking-btn');
@@ -287,7 +286,6 @@
         }
         mapAdapter.clearUserLocation();
         locationMarker = null;
-        droppedPin = false;
         userLat = null;
         userLng = null;
         dropPinBtn.classList.remove('active');
@@ -331,7 +329,6 @@
 
     function startLocation() {
         if (!navigator.geolocation || locationWatchId !== null) return;
-        droppedPin = false;
         dropPinBtn.classList.remove('active');
         myLocationBtn.classList.add('active');
         stopTrackingBtn.style.display = '';
@@ -347,7 +344,6 @@
         const center = mapAdapter.getCenter();
         userLat = center.lat;
         userLng = center.lng;
-        droppedPin = true;
         locationMarker = true;
         dropPinBtn.classList.add('active');
         stopTrackingBtn.style.display = '';

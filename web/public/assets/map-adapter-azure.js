@@ -567,7 +567,11 @@
 
         dropLocationPin: function (lat, lng, onDragEnd) {
             _whenReady(function () {
-                if (_locMarker) { _map.markers.remove(_locMarker); _locMarker = null; }
+                if (_locMarker) {
+                    _map.events.remove('dragend', _locMarker);
+                    _map.markers.remove(_locMarker);
+                    _locMarker = null;
+                }
                 if (_locSource) _locSource.clear();
 
                 _locMarker = new atlas.HtmlMarker({
