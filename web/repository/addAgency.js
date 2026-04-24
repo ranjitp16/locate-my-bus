@@ -1,4 +1,4 @@
-// Parse a CSV line respecting quoted fields (e.g. "Main St, South Side" stays as one value)
+// Parse a CSV line respecting quoted fields and escaped quotes ("")
 function parseCsvLine(line) {
     const values = [];
     let current = '';
@@ -6,7 +6,12 @@ function parseCsvLine(line) {
     for (let i = 0; i < line.length; i++) {
         const ch = line[i];
         if (ch === '"') {
-            inQuotes = !inQuotes;
+            if (inQuotes && line[i + 1] === '"') {
+                current += '"';
+                i++; // skip the escaped quote
+            } else {
+                inQuotes = !inQuotes;
+            }
         } else if (ch === ',' && !inQuotes) {
             values.push(current.trim());
             current = '';
@@ -255,7 +260,11 @@ const handleWriteFromStops = async (client, fileName, tableName, decompressed, l
 
     var { lines, header, sanitized_table_headers_no_id } = await getFileContents(client, decompressed, fileName, tableName, tableName, static_feed_url);
 
-    const columns = [...header.map(h => h.replace(`${tableName}_`, '')).filter(h => sanitized_table_headers_no_id.some(sh => sh.column_name === h))];
+    // GTFS stop_desc maps to DB column "description"
+    const STOP_COL_MAP = { 'desc': 'description' };
+    const mapCol = (col) => STOP_COL_MAP[col] || col;
+
+    const columns = [...header.map(h => mapCol(h.replace(`${tableName}_`, ''))).filter(h => sanitized_table_headers_no_id.some(sh => sh.column_name === h))];
     columns.push("agency_id");
 
     const stopIdsByAgency = new Map();
@@ -270,7 +279,7 @@ const handleWriteFromStops = async (client, fileName, tableName, decompressed, l
             const params = [];
 
             header.forEach((h, i) => {
-                if (sanitized_table_headers_no_id.some(sh => sh.column_name === h.replace(`${tableName}_`, ''))) {
+                if (sanitized_table_headers_no_id.some(sh => sh.column_name === mapCol(h.replace(`${tableName}_`, '')))) {
                     params.push(values[i] || null);
                     if (h === `${tableName}_id`) stopIds.add(values[i]);
                 }

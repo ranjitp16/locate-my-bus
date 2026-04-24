@@ -28,6 +28,7 @@
     let _stopMarkers = []; // array of { marker, popup }
     let _openStopPopup = null; // at most one stop popup open at a time
     let _stopClickPinned = false; // true when the open stop popup was click-pinned
+    let _stopGeneration = 0; // incremented on each updateStopMarkers call to discard stale fetches
 
     // Walking path SVG overlay (user → nearest stop)
     let _walkSvgEl     = null;
@@ -593,6 +594,7 @@
 
         updateStopMarkers: function (stops, userLat, userLng) {
             _whenReady(function () {
+                var gen = ++_stopGeneration;
                 // Clear any existing stop markers first
                 _stopMarkers.forEach(function (s) {
                     _map.markers.remove(s.marker);
@@ -696,7 +698,7 @@
                     // Find closest stop by straight-line
                     var closestIdx = 0, closestDist = Infinity;
                     for (var ci = 0; ci < stops.length; ci++) {
-                        if (!stops[ci].lat || !stops[ci].lon) continue;
+                        if (stops[ci].lat == null || stops[ci].lon == null) continue;
                         var d = _haversineMeters(userLat, userLng, stops[ci].lat, stops[ci].lon);
                         if (d < closestDist) { closestDist = d; closestIdx = ci; }
                     }
@@ -710,6 +712,7 @@
                     })
                     .then(function (r) { return r.json(); })
                     .then(function (data) {
+                        if (gen !== _stopGeneration) return; // stale response
                         if (!data.routes || !data.routes[0] || !data.routes[0].legs) return;
                         // Build walking path from route points
                         var pathPts = [];
@@ -723,7 +726,7 @@
                         // the one whose nearest path point is earliest (closest to user).
                         var bestIdx = -1, bestPathPos = Infinity;
                         for (var si = 0; si < stops.length; si++) {
-                            if (!stops[si].lat || !stops[si].lon) continue;
+                            if (stops[si].lat == null || stops[si].lon == null) continue;
                             var minDist = Infinity, minPos = Infinity;
                             for (var pi = 0; pi < pathPts.length; pi++) {
                                 var dd = _haversineMeters(stops[si].lat, stops[si].lon, pathPts[pi].latitude, pathPts[pi].longitude);
