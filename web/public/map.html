@@ -108,6 +108,7 @@
     let countdownTimer = null;
     let pinnedVehicleId = null;
     let manuallyPinned = false;
+    let pinnedCentered = false;
     let userLat = null;
     let userLng = null;
     const POLL_INTERVAL = 15000;
@@ -133,6 +134,7 @@
     mapAdapter.onClick(function () {
         pinnedVehicleId = null;
         manuallyPinned  = false;
+        pinnedCentered = false;
         mapAdapter.closeOpenPopup();
         clearRoute();
     });
@@ -141,9 +143,11 @@
         if (pinnedVehicleId === vehicleId) {
             pinnedVehicleId = null;
             manuallyPinned  = false;
+            pinnedCentered = false;
             clearRoute();
         } else {
             pinnedVehicleId = vehicleId;
+            pinnedCentered = false;
             manuallyPinned  = true;
             mapAdapter.setView(lat, lon, mapAdapter.getZoom(), true);
             drawRoute(agencySelect.value, tripId);
@@ -243,13 +247,15 @@
             });
             if (nearest && nearest.vehicle_id !== pinnedVehicleId) {
                 pinnedVehicleId = nearest.vehicle_id;
+                pinnedCentered = false;
                 drawRoute(agencySelect.value, nearest.trip_id);
             }
         }
 
         const pinned = vehicles.find(v => v.vehicle_id === pinnedVehicleId);
-        if (pinned) {
+        if (pinned && !pinnedCentered) {
             mapAdapter.setView(pinned.lat, pinned.lon, mapAdapter.getZoom(), true);
+            pinnedCentered = true;
         } else if (!hasAutocentered && !hasSavedPosition) {
             const avgLat = vehicles.reduce((s, v) => s + v.lat, 0) / vehicles.length;
             const avgLon = vehicles.reduce((s, v) => s + v.lon, 0) / vehicles.length;
@@ -369,6 +375,7 @@
         clearInterval(countdownTimer);
         hasAutocentered = false;
         pinnedVehicleId = null;
+        pinnedCentered = false;
         manuallyPinned = false;
         clearRoute();
         fetchLive();
