@@ -350,41 +350,6 @@ int mainLogic(int argc, char* args[], pqxx::connection* conn){
 }
 
 
-void attemptWeeklyRefresh(const string& web_host, const string& access_key) {
-    CURL* curl = curl_easy_init();
-    if (!curl) {
-        cerr << "[refresh] curl_easy_init() failed\n";
-        return;
-    }
-
-    string url = "http://" + web_host + ":3000/api/agencies/refresh";
-    struct curl_slist* headers = nullptr;
-    headers = curl_slist_append(headers, ("x-access-key: " + access_key).c_str());
-    headers = curl_slist_append(headers, "Content-Type: application/json");
-
-    stringstream response;
-    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-    curl_easy_setopt(curl, CURLOPT_POST, 1L);
-    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, "");
-    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_data);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 300L); // 5 min timeout for full re-onboard
-
-    CURLcode res = curl_easy_perform(curl);
-    if (res == CURLE_OK) {
-        long http_code = 0;
-        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
-        cout << "[refresh] Weekly refresh completed. HTTP " << http_code
-             << " Response: " << response.str() << "\n";
-    } else {
-        cerr << "[refresh] Weekly refresh failed: " << curl_easy_strerror(res) << "\n";
-    }
-
-    curl_slist_free_all(headers);
-    curl_easy_cleanup(curl);
-}
-
 int main(int argc, char* args[]){
 
 	auto e = [](const char* v) { return v ? v : throw invalid_argument("essential env vars not set"); };
@@ -411,30 +376,7 @@ int main(int argc, char* args[]){
 
 	curl_global_init(CURL_GLOBAL_DEFAULT);
 
-	// Weekly refresh state
-	auto last_refresh = chrono::system_clock::now();
-	string web_host = PG_HOST; // In devcontainer, web and daemon share the same docker network
-	// Override with WEB_HOST env var if set
-	const char* web_host_env = getenv("WEB_HOST");
-	if (web_host_env) web_host = web_host_env;
-	string access_key = getenv("DELETE_ACCESS_KEY") ? getenv("DELETE_ACCESS_KEY") : "";
-
 	while(g_running){
-		// Check for weekly refresh: 7 days elapsed AND current UTC hour is 08 (4 AM AST)
-		{
-			auto now = chrono::system_clock::now();
-			auto elapsed = chrono::duration_cast<chrono::hours>(now - last_refresh).count();
-			time_t now_t = chrono::system_clock::to_time_t(now);
-			struct tm utc_tm;
-			gmtime_r(&now_t, &utc_tm);
-
-			if (elapsed >= 168 && utc_tm.tm_hour == 8) { // 168 hours = 7 days
-				cout << "[refresh] Weekly refresh triggered at UTC hour " << utc_tm.tm_hour << "\n";
-				attemptWeeklyRefresh(web_host, access_key);
-				last_refresh = now; // Update regardless of success/failure
-			}
-		}
-
 		mainLogic(argc, args, &conn);
 		this_thread::sleep_for(chrono::seconds(15));
 	}
