@@ -275,18 +275,10 @@
     /* ── User location ── */
     let locationWatchId = null;
     let locationMarker  = null;
-    const locateBtn       = document.getElementById('locate-btn');
-    const locationErrorEl = document.getElementById('location-error');
-    const locationErrorMsg = document.getElementById('location-error-msg');
-
-    function showLocationError(msg) {
-        locationErrorMsg.textContent = msg;
-        locationErrorEl.style.display = 'flex';
-    }
-
-    function hideLocationError() {
-        locationErrorEl.style.display = 'none';
-    }
+    let droppedPin      = false;
+    const dropPinBtn       = document.getElementById('drop-pin-btn');
+    const myLocationBtn    = document.getElementById('my-location-btn');
+    const stopTrackingBtn  = document.getElementById('stop-tracking-btn');
 
     function stopLocation() {
         if (locationWatchId !== null) {
@@ -295,37 +287,34 @@
         }
         mapAdapter.clearUserLocation();
         locationMarker = null;
+        droppedPin = false;
         userLat = null;
         userLng = null;
-        locateBtn.classList.remove('active');
-        locateBtn.textContent = '◎ Show my location';
+        dropPinBtn.classList.remove('active');
+        myLocationBtn.classList.remove('active');
+        stopTrackingBtn.style.display = 'none';
     }
 
     function onLocationUpdate(pos) {
         const { latitude: lat, longitude: lng, accuracy } = pos.coords;
         userLat = lat;
         userLng = lng;
-        hideLocationError();
 
         const firstTime = !locationMarker;
         mapAdapter.setUserLocation(lat, lng, accuracy);
-        locationMarker = true; // used only as a flag — adapter owns the actual objects
+        locationMarker = true;
+        myLocationBtn.classList.add('active');
+        stopTrackingBtn.style.display = '';
 
         if (firstTime) {
             mapAdapter.setView(lat, lng, mapAdapter.getZoom(), true);
-            locateBtn.textContent = '◎ My location';
         }
     }
 
     function onLocationError(err) {
         if (err.code === err.PERMISSION_DENIED) {
             stopLocation();
-            showLocationError('Location access denied. Enable it in your browser settings, then try again.');
-        } else if (err.code === err.POSITION_UNAVAILABLE) {
-            // CoreLocation (macOS) fires this transiently while still trying — keep the watch alive
-            locateBtn.textContent = '◎ Locating…';
         } else if (err.code === err.TIMEOUT) {
-            // High-accuracy timed out — silently retry with low accuracy (WiFi/IP-based)
             navigator.geolocation.clearWatch(locationWatchId);
             locationWatchId = navigator.geolocation.watchPosition(
                 onLocationUpdate,
@@ -333,17 +322,19 @@
                 { enableHighAccuracy: false, timeout: 15000, maximumAge: 60000 }
             );
         }
+        // POSITION_UNAVAILABLE: keep watch alive (macOS CoreLocation transient)
     }
 
     if (!navigator.geolocation) {
-        locateBtn.style.display = 'none';
+        myLocationBtn.style.display = 'none';
     }
 
     function startLocation() {
         if (!navigator.geolocation || locationWatchId !== null) return;
-        hideLocationError();
-        locateBtn.classList.add('active');
-        locateBtn.textContent = '◎ Locating…';
+        droppedPin = false;
+        dropPinBtn.classList.remove('active');
+        myLocationBtn.classList.add('active');
+        stopTrackingBtn.style.display = '';
         locationWatchId = navigator.geolocation.watchPosition(
             onLocationUpdate,
             onLocationError,
@@ -351,15 +342,29 @@
         );
     }
 
-    locateBtn.addEventListener('click', () => {
-        if (locationWatchId !== null) {
-            stopLocation();
-        } else {
-            startLocation();
-        }
+    dropPinBtn.addEventListener('click', () => {
+        stopLocation();
+        const center = mapAdapter.getCenter();
+        userLat = center.lat;
+        userLng = center.lng;
+        droppedPin = true;
+        locationMarker = true;
+        dropPinBtn.classList.add('active');
+        stopTrackingBtn.style.display = '';
+        mapAdapter.dropLocationPin(center.lat, center.lng, (lat, lng) => {
+            userLat = lat;
+            userLng = lng;
+        });
     });
 
-    document.getElementById('location-retry-btn').addEventListener('click', startLocation);
+    myLocationBtn.addEventListener('click', () => {
+        stopLocation();
+        startLocation();
+    });
+
+    stopTrackingBtn.addEventListener('click', () => {
+        stopLocation();
+    });
 
     startLocation();
 
