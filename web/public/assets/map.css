@@ -226,7 +226,7 @@ body { overflow: hidden; }
 
 /* ── Stop popup — uses same theme vars as bus popup ── */
 .stop-popup {
-    padding: 6px 8px;
+    padding: 6px 22px 6px 8px;
     font-size: 0.8rem;
     line-height: 1.5;
     word-wrap: break-word;
