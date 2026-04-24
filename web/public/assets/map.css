@@ -172,22 +172,36 @@ body { overflow: hidden; }
     box-shadow: 0 1px 4px rgba(0,0,0,0.4);
 }
 
-#locate-btn {
-    background: none;
-    border: 1px solid var(--border);
-    color: var(--text);
-    border-radius: 5px;
-    padding: 5px 8px;
-    font-family: inherit;
-    font-size: 0.8rem;
-    cursor: pointer;
-    text-align: left;
+#map-left-controls {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    z-index: 1000;
     display: flex;
-    align-items: center;
+    flex-direction: column;
     gap: 6px;
 }
-#locate-btn:hover { border-color: var(--accent); color: var(--accent); }
-#locate-btn.active { border-color: #2979ff; color: #2979ff; }
+#map-left-controls button {
+    width: 36px;
+    height: 36px;
+    border: none;
+    border-radius: 6px;
+    background: var(--surface);
+    color: var(--text);
+    font-size: 1rem;
+    cursor: pointer;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.25);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+#map-left-controls button:hover {
+    background: var(--surface-alt);
+    color: var(--accent);
+}
+#map-left-controls button.active {
+    color: #2979ff;
+}
 
 #poll-toggle-btn {
     background: none;
