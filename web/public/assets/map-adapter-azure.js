@@ -309,6 +309,17 @@
                     fillOpacity: 0.1,
                 }));
 
+                document.addEventListener('click', function(e) {
+                    var toggle = e.target.closest('[data-bus-toggle]');
+                    if (!toggle) return;
+                    var details = toggle.nextElementSibling;
+                    if (details && details.hasAttribute('data-bus-details')) {
+                        var open = details.style.display !== 'none';
+                        details.style.display = open ? 'none' : 'block';
+                        toggle.innerHTML = (open ? '&#9656;' : '&#9662;') + ' Details';
+                    }
+                });
+
                 _ready = true;
                 _queue.forEach(function (fn) { fn(); });
                 _queue = [];
@@ -369,7 +380,8 @@
                     const deg      = (v.head_bearing != null && Number.isFinite(v.head_bearing))
                         ? v.head_bearing + 90 : 0;
                     const age      = Math.round((Date.now() - Date.parse(v.timestamp)) / 1000);
-                    const speedText = v.speed != null ? _escapeHtml(v.speed) : '—';
+                    const speedRaw = v.speed != null ? v.speed : null;
+                    const speedKmh = speedRaw != null ? (speedRaw * 3.6).toFixed(0) : '—';
                     const bearingText = v.head_bearing != null ? _escapeHtml(v.head_bearing) + '°' : '—';
                     const distText = (userLat != null) ? (function () {
                         const d = _haversineMeters(userLat, userLng, v.lat, v.lon);
@@ -377,13 +389,18 @@
                     }()) : null;
                     const popupHtml =
                         '<div style="padding:6px 8px;font-size:0.82rem;line-height:1.6;">' +
+                        '<b>' + _escapeHtml(v.route_id) + '</b> — ' +
+                        '<span class="age-counter" data-ts="' + Date.parse(v.timestamp) + '">' + age + '</span>s ago' +
+                        (distText != null ? ', <span data-field="distance">' + distText + '</span> away' : '') +
+                        ', <span data-field="speed">' + speedKmh + '</span> km/h' +
+                        '<div style="cursor:pointer;color:var(--accent,#1d6aed);margin-top:4px;" data-bus-toggle>' +
+                        '&#9656; Details</div>' +
+                        '<div data-bus-details style="display:none;">' +
                         '<b>Trip:</b> '    + _escapeHtml(v.trip_id)    + '<br>' +
                         '<b>Route:</b> '   + _escapeHtml(v.route_id)   + '<br>' +
                         '<b>Vehicle:</b> ' + _escapeHtml(v.vehicle_id) + '<br>' +
-                        '<b>Speed:</b> <span data-field="speed">'   + speedText + '</span> m/s<br>' +
-                        '<b>Bearing:</b> <span data-field="bearing">' + bearingText + '</span><br>' +
-                        '<b>Updated:</b> <span class="age-counter" data-ts="' + Date.parse(v.timestamp) + '">' + age + '</span>s ago' +
-                        (distText != null ? '<br><b>Distance:</b> <span data-field="distance">' + distText + '</span> away' : '') + '</div>';
+                        '<b>Bearing:</b> <span data-field="bearing">' + bearingText + '</span>' +
+                        '</div></div>';
 
                     if (_busMarkerMap[vid]) {
                         // ── Reuse existing marker ──
@@ -400,23 +417,18 @@
                         } catch (_) {}
 
                         if (isPinnedBus) {
-                            // Update live fields in-place so the age counter DOM reference stays valid
                             try {
                                 const container = document.querySelector('.popup-content-container, .atlas-popup-content-container');
                                 if (container) {
                                     const ageEl = container.querySelector('.age-counter');
                                     if (ageEl) ageEl.dataset.ts = String(Date.parse(v.timestamp));
                                     const speedEl = container.querySelector('[data-field="speed"]');
-                                    if (speedEl) speedEl.textContent = speedText;
+                                    if (speedEl) speedEl.textContent = speedKmh;
                                     const bearEl = container.querySelector('[data-field="bearing"]');
                                     if (bearEl) bearEl.textContent = bearingText;
                                     const distEl = container.querySelector('[data-field="distance"]');
                                     if (distEl && distText != null) {
                                         distEl.textContent = distText;
-                                    } else if (!distEl && distText != null) {
-                                        const inner = container.querySelector('div');
-                                        if (inner) inner.insertAdjacentHTML('beforeend',
-                                            '<br><b>Distance:</b> <span data-field="distance">' + _escapeHtml(distText) + '</span> away');
                                     }
                                 }
                             } catch (_) {}
