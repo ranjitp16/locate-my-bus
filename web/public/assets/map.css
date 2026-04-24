@@ -216,12 +216,16 @@ body { overflow: hidden; }
 }
 .stop-dot::after {
     content: '';
-    width: 8px;
-    height: 8px;
-    background: var(--surface, #fff);
-    border: 2px solid var(--accent, #1d6aed);
+    width: 9px;
+    height: 9px;
+    background: #e67e22;
+    border: 1.5px solid #fff;
     border-radius: 50%;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+    box-shadow: 0 0 3px rgba(0,0,0,0.4);
+    transition: transform 0.15s ease;
+}
+.stop-dot:hover::after {
+    transform: scale(1.3);
 }
 
 /* ── Stop popup — uses same theme vars as bus popup ── */

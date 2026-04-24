@@ -622,18 +622,39 @@
 
                     _map.markers.add(marker);
 
+                    var clickPinned = false;
+
                     _map.events.add('click', marker, function () {
                         _suppressMapClick = true;
                         setTimeout(function () { _suppressMapClick = false; }, 0);
-                        if (_openStopPopup === popup) {
+                        if (_openStopPopup === popup && clickPinned) {
+                            // Already click-pinned — unpin and close
                             popup.close();
                             _openStopPopup = null;
+                            clickPinned = false;
                         } else {
-                            if (_openStopPopup) { _openStopPopup.close(); }
+                            // Hover-open or closed — pin it open
+                            if (_openStopPopup && _openStopPopup !== popup) { _openStopPopup.close(); }
+                            if (_openStopPopup !== popup) popup.open(_map);
+                            _openStopPopup = popup;
+                            clickPinned = true;
+                        }
+                    });
+
+                    _map.events.add('mouseover', marker, function () {
+                        if (_openStopPopup !== popup) {
+                            if (_openStopPopup && !clickPinned) { _openStopPopup.close(); }
                             popup.open(_map);
                             _openStopPopup = popup;
+                            clickPinned = false;
                         }
-                        // Do NOT close the pinned bus popup (_openPopup is untouched)
+                    });
+
+                    _map.events.add('mouseout', marker, function () {
+                        if (_openStopPopup === popup && !clickPinned) {
+                            popup.close();
+                            _openStopPopup = null;
+                        }
                     });
 
                     _map.events.add('close', popup, function () {
