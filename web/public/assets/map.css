@@ -172,6 +172,40 @@ body { overflow: hidden; }
     box-shadow: 0 1px 4px rgba(0,0,0,0.4);
 }
 
+/* Dropped/manual location pin — red inverted teardrop */
+.dropped-pin {
+    width: 24px;
+    height: 34px;
+    position: relative;
+    cursor: grab;
+}
+.dropped-pin:active { cursor: grabbing; }
+.dropped-pin::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 24px;
+    height: 24px;
+    background: #d32f2f;
+    border: 2.5px solid #fff;
+    border-radius: 50% 50% 50% 0;
+    transform: translateX(-50%) rotate(-45deg);
+    box-shadow: 0 2px 6px rgba(0,0,0,0.35);
+}
+.dropped-pin::after {
+    content: '';
+    position: absolute;
+    top: 6px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 8px;
+    height: 8px;
+    background: #fff;
+    border-radius: 50%;
+}
+
 #map-left-controls {
     position: absolute;
     top: 12px;

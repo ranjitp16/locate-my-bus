@@ -575,9 +575,9 @@
                 if (_locSource) _locSource.clear();
 
                 _locMarker = new atlas.HtmlMarker({
-                    htmlContent: '<div class="user-location-marker"><div class="user-location-dot"></div></div>',
+                    htmlContent: '<div class="dropped-pin"></div>',
                     position:    [lng, lat],
-                    anchor:      'center',
+                    anchor:      'bottom',
                     draggable:   true,
                 });
                 _map.markers.add(_locMarker);

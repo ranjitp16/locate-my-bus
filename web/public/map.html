@@ -117,6 +117,7 @@
     let pinnedCentered = false;
     let userLat = null;
     let userLng = null;
+    let lastStops = [];
     const POLL_INTERVAL = 15000;
 
     // ── Init Azure Maps adapter ──
@@ -208,6 +209,7 @@
         fetch(`/api/stops/${agencyId}/${tripId}`)
             .then(r => r.json())
             .then(stops => {
+                lastStops = stops;
                 if (stops.length) mapAdapter.updateStopMarkers(stops, userLat, userLng);
             })
             .catch(err => console.error('Stops fetch failed:', err));
@@ -350,6 +352,7 @@
         mapAdapter.dropLocationPin(center.lat, center.lng, (lat, lng) => {
             userLat = lat;
             userLng = lng;
+            if (lastStops.length) mapAdapter.updateStopMarkers(lastStops, userLat, userLng);
         });
     });
 
