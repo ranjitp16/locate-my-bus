@@ -189,6 +189,7 @@
     function clearRoute() {
         mapAdapter.clearRoute();
         mapAdapter.clearStopMarkers();
+        lastStops = [];
     }
 
     function drawRoute(agencyId, tripId) {
