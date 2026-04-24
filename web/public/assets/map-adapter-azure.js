@@ -309,16 +309,7 @@
                     fillOpacity: 0.1,
                 }));
 
-                document.addEventListener('click', function(e) {
-                    var toggle = e.target.closest('[data-bus-toggle]');
-                    if (!toggle) return;
-                    var details = toggle.nextElementSibling;
-                    if (details && details.hasAttribute('data-bus-details')) {
-                        var open = details.style.display !== 'none';
-                        details.style.display = open ? 'none' : 'block';
-                        toggle.innerHTML = (open ? '&#9656;' : '&#9662;') + ' Details';
-                    }
-                });
+                // Bus popup details toggle is registered once at IIFE scope (see bottom of file)
 
                 _ready = true;
                 _queue.forEach(function (fn) { fn(); });
@@ -380,8 +371,7 @@
                     const deg      = (v.head_bearing != null && Number.isFinite(v.head_bearing))
                         ? v.head_bearing + 90 : 0;
                     const age      = Math.round((Date.now() - Date.parse(v.timestamp)) / 1000);
-                    const speedRaw = v.speed != null ? v.speed : null;
-                    const speedKmh = speedRaw != null ? (speedRaw * 3.6).toFixed(0) : '—';
+                    const speedKmh = v.speed != null ? (v.speed * 3.6).toFixed(0) : '—';
                     const bearingText = v.head_bearing != null ? _escapeHtml(v.head_bearing) + '°' : '—';
                     const distText = (userLat != null) ? (function () {
                         const d = _haversineMeters(userLat, userLng, v.lat, v.lon);
@@ -744,5 +734,17 @@
             });
         },
     };
+
+    // Delegated click handler for bus popup details toggle (registered once)
+    document.addEventListener('click', function(e) {
+        var toggle = e.target.closest('[data-bus-toggle]');
+        if (!toggle) return;
+        var details = toggle.nextElementSibling;
+        if (details && details.hasAttribute('data-bus-details')) {
+            var open = details.style.display !== 'none';
+            details.style.display = open ? 'none' : 'block';
+            toggle.innerHTML = (open ? '&#9656;' : '&#9662;') + ' Details';
+        }
+    });
 
 }());
