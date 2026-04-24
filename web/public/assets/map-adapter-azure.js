@@ -711,18 +711,10 @@
                             var existingContent = markersRef[bestIdx].popup.getOptions().content;
                             var updated = existingContent.replace('</div><!-- stop-popup-end -->', walkInfo + '</div><!-- stop-popup-end -->');
                             markersRef[bestIdx].popup.setOptions({ content: updated });
-
-                            if (_openStopPopup) { _openStopPopup.close(); }
-                            markersRef[bestIdx].popup.open(_map);
-                            _openStopPopup = markersRef[bestIdx].popup;
                         }
                     })
                     .catch(function (err) {
                         console.error('Route API failed, falling back to closest-by-air:', err);
-                        if (markersRef[closestIdx]) {
-                            markersRef[closestIdx].popup.open(_map);
-                            _openStopPopup = markersRef[closestIdx].popup;
-                        }
                     });
                 }
             });
