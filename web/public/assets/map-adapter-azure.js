@@ -565,6 +565,26 @@
             });
         },
 
+        dropLocationPin: function (lat, lng, onDragEnd) {
+            _whenReady(function () {
+                if (_locMarker) { _map.markers.remove(_locMarker); _locMarker = null; }
+                if (_locSource) _locSource.clear();
+
+                _locMarker = new atlas.HtmlMarker({
+                    htmlContent: '<div class="user-location-marker"><div class="user-location-dot"></div></div>',
+                    position:    [lng, lat],
+                    anchor:      'center',
+                    draggable:   true,
+                });
+                _map.markers.add(_locMarker);
+
+                _map.events.add('dragend', _locMarker, function () {
+                    var pos = _locMarker.getOptions().position;
+                    if (onDragEnd) onDragEnd(pos[1], pos[0]);
+                });
+            });
+        },
+
         // ── Stop markers ────────────────────────────────────────────────────
 
         updateStopMarkers: function (stops, userLat, userLng) {
