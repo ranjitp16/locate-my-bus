@@ -439,34 +439,6 @@ app.get('/api/stops/:agency_id/:trip_id', async (req, res) => {
     }
 });
 
-app.post('/api/agencies/refresh', authMiddleware, async (req, res) => {
-    try {
-        // 1. Capture agency list before truncating
-        const { rows: agencies } = await pool.query('SELECT id, rt_feed_url, static_feed_url, api_key_in_header FROM public.agency');
-
-        // 2. Truncate ALL tables including agency (onBoardAgency creates fresh agency rows with new UUIDs)
-        await pool.query('TRUNCATE agency, route, shape, shape_point, trip, stop, stop_time, live_vehicle_position, poll_iteration, feed_execution CASCADE');
-
-        const results = { refreshed: 0, errors: [] };
-
-        // 3. Re-onboard each agency
-        for (const agency of agencies) {
-            try {
-                await onBoardAgency(agency.rt_feed_url, agency.static_feed_url, agency.api_key_in_header);
-                results.refreshed++;
-            } catch (err) {
-                console.error(`Refresh failed for agency ${agency.id}:`, err.message);
-                results.errors.push({ agency_id: agency.id, error: err.message });
-            }
-        }
-
-        res.json(results);
-    } catch (err) {
-        console.error('Refresh failed:', err);
-        res.status(500).json({ error: 'Refresh failed: ' + err.message });
-    }
-});
-
 app.listen(port, () => {
     console.log(`Example app listening on port ${port}`)
 })

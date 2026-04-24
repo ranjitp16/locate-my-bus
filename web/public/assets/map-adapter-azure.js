@@ -27,6 +27,8 @@
     // Stop markers (shown when a bus is pinned)
     let _stopMarkers = []; // array of { marker, popup }
     let _openStopPopup = null; // at most one stop popup open at a time
+    let _stopClickPinned = false; // true when the open stop popup was click-pinned
+    let _stopGeneration = 0; // incremented on each updateStopMarkers call to discard stale fetches
 
     // Walking path SVG overlay (user → nearest stop)
     let _walkSvgEl     = null;
@@ -309,6 +311,8 @@
                     fillOpacity: 0.1,
                 }));
 
+                // Bus popup details toggle is registered once at IIFE scope (see bottom of file)
+
                 _ready = true;
                 _queue.forEach(function (fn) { fn(); });
                 _queue = [];
@@ -369,21 +373,25 @@
                     const deg      = (v.head_bearing != null && Number.isFinite(v.head_bearing))
                         ? v.head_bearing + 90 : 0;
                     const age      = Math.round((Date.now() - Date.parse(v.timestamp)) / 1000);
-                    const speedText = v.speed != null ? _escapeHtml(v.speed) : '—';
+                    const speedKmh = v.speed != null ? (v.speed * 3.6).toFixed(0) : '—';
                     const bearingText = v.head_bearing != null ? _escapeHtml(v.head_bearing) + '°' : '—';
                     const distText = (userLat != null) ? (function () {
                         const d = _haversineMeters(userLat, userLng, v.lat, v.lon);
                         return d < 1000 ? Math.round(d) + 'm' : (d / 1000).toFixed(1) + 'km';
                     }()) : null;
                     const popupHtml =
-                        '<div style="padding:6px 8px;font-size:0.82rem;line-height:1.6;">' +
+                        '<div style="padding:6px 22px 6px 8px;font-size:0.82rem;line-height:1.6;">' +
+                        '<b>' + _escapeHtml(v.route_id) + '</b> — ' +
+                        '<span class="age-counter" data-ts="' + Date.parse(v.timestamp) + '">' + age + '</span>s ago' +
+                        (distText != null ? ', <span data-field="distance">' + distText + '</span> away' : '') +
+                        ', <span data-field="speed">' + speedKmh + '</span> km/h' +
+                        '<div style="cursor:pointer;color:var(--accent,#1d6aed);margin-top:4px;" data-bus-toggle>' +
+                        '&#9656; Details</div>' +
+                        '<div data-bus-details style="display:none;">' +
                         '<b>Trip:</b> '    + _escapeHtml(v.trip_id)    + '<br>' +
-                        '<b>Route:</b> '   + _escapeHtml(v.route_id)   + '<br>' +
                         '<b>Vehicle:</b> ' + _escapeHtml(v.vehicle_id) + '<br>' +
-                        '<b>Speed:</b> <span data-field="speed">'   + speedText + '</span> m/s<br>' +
-                        '<b>Bearing:</b> <span data-field="bearing">' + bearingText + '</span><br>' +
-                        '<b>Updated:</b> <span class="age-counter" data-ts="' + Date.parse(v.timestamp) + '">' + age + '</span>s ago' +
-                        (distText != null ? '<br><b>Distance:</b> <span data-field="distance">' + distText + '</span> away' : '') + '</div>';
+                        '<b>Bearing:</b> <span data-field="bearing">' + bearingText + '</span>' +
+                        '</div></div>';
 
                     if (_busMarkerMap[vid]) {
                         // ── Reuse existing marker ──
@@ -400,23 +408,22 @@
                         } catch (_) {}
 
                         if (isPinnedBus) {
-                            // Update live fields in-place so the age counter DOM reference stays valid
                             try {
                                 const container = document.querySelector('.popup-content-container, .atlas-popup-content-container');
                                 if (container) {
                                     const ageEl = container.querySelector('.age-counter');
                                     if (ageEl) ageEl.dataset.ts = String(Date.parse(v.timestamp));
                                     const speedEl = container.querySelector('[data-field="speed"]');
-                                    if (speedEl) speedEl.textContent = speedText;
+                                    if (speedEl) speedEl.textContent = speedKmh;
                                     const bearEl = container.querySelector('[data-field="bearing"]');
                                     if (bearEl) bearEl.textContent = bearingText;
                                     const distEl = container.querySelector('[data-field="distance"]');
                                     if (distEl && distText != null) {
                                         distEl.textContent = distText;
                                     } else if (!distEl && distText != null) {
-                                        const inner = container.querySelector('div');
-                                        if (inner) inner.insertAdjacentHTML('beforeend',
-                                            '<br><b>Distance:</b> <span data-field="distance">' + _escapeHtml(distText) + '</span> away');
+                                        const sEl = container.querySelector('[data-field="speed"]');
+                                        if (sEl) sEl.insertAdjacentHTML('beforebegin',
+                                            '<span data-field="distance">' + _escapeHtml(distText) + '</span> away, ');
                                     }
                                 }
                             } catch (_) {}
@@ -559,10 +566,35 @@
             });
         },
 
+        dropLocationPin: function (lat, lng, onDragEnd) {
+            _whenReady(function () {
+                if (_locMarker) {
+                    _map.events.remove('dragend', _locMarker);
+                    _map.markers.remove(_locMarker);
+                    _locMarker = null;
+                }
+                if (_locSource) _locSource.clear();
+
+                _locMarker = new atlas.HtmlMarker({
+                    htmlContent: '<div class="dropped-pin"></div>',
+                    position:    [lng, lat],
+                    anchor:      'bottom',
+                    draggable:   true,
+                });
+                _map.markers.add(_locMarker);
+
+                _map.events.add('dragend', _locMarker, function () {
+                    var pos = _locMarker.getOptions().position;
+                    if (onDragEnd) onDragEnd(pos[1], pos[0]);
+                });
+            });
+        },
+
         // ── Stop markers ────────────────────────────────────────────────────
 
         updateStopMarkers: function (stops, userLat, userLng) {
             _whenReady(function () {
+                var gen = ++_stopGeneration;
                 // Clear any existing stop markers first
                 _stopMarkers.forEach(function (s) {
                     _map.markers.remove(s.marker);
@@ -620,19 +652,40 @@
                     _map.events.add('click', marker, function () {
                         _suppressMapClick = true;
                         setTimeout(function () { _suppressMapClick = false; }, 0);
-                        if (_openStopPopup === popup) {
+                        if (_openStopPopup === popup && _stopClickPinned) {
                             popup.close();
                             _openStopPopup = null;
+                            _stopClickPinned = false;
                         } else {
-                            if (_openStopPopup) { _openStopPopup.close(); }
-                            popup.open(_map);
+                            if (_openStopPopup && _openStopPopup !== popup) { _openStopPopup.close(); }
+                            if (_openStopPopup !== popup) popup.open(_map);
                             _openStopPopup = popup;
+                            _stopClickPinned = true;
                         }
-                        // Do NOT close the pinned bus popup (_openPopup is untouched)
+                    });
+
+                    _map.events.add('mouseover', marker, function () {
+                        if (_openStopPopup !== popup) {
+                            if (_openStopPopup && !_stopClickPinned) { _openStopPopup.close(); }
+                            if (!_stopClickPinned) {
+                                popup.open(_map);
+                                _openStopPopup = popup;
+                            }
+                        }
+                    });
+
+                    _map.events.add('mouseout', marker, function () {
+                        if (_openStopPopup === popup && !_stopClickPinned) {
+                            popup.close();
+                            _openStopPopup = null;
+                        }
                     });
 
                     _map.events.add('close', popup, function () {
-                        if (_openStopPopup === popup) _openStopPopup = null;
+                        if (_openStopPopup === popup) {
+                            _openStopPopup = null;
+                            _stopClickPinned = false;
+                        }
                     });
 
                     _stopMarkers.push({ marker: marker, popup: popup });
@@ -645,7 +698,7 @@
                     // Find closest stop by straight-line
                     var closestIdx = 0, closestDist = Infinity;
                     for (var ci = 0; ci < stops.length; ci++) {
-                        if (!stops[ci].lat || !stops[ci].lon) continue;
+                        if (stops[ci].lat == null || stops[ci].lon == null) continue;
                         var d = _haversineMeters(userLat, userLng, stops[ci].lat, stops[ci].lon);
                         if (d < closestDist) { closestDist = d; closestIdx = ci; }
                     }
@@ -659,6 +712,7 @@
                     })
                     .then(function (r) { return r.json(); })
                     .then(function (data) {
+                        if (gen !== _stopGeneration) return; // stale response
                         if (!data.routes || !data.routes[0] || !data.routes[0].legs) return;
                         // Build walking path from route points
                         var pathPts = [];
@@ -672,7 +726,7 @@
                         // the one whose nearest path point is earliest (closest to user).
                         var bestIdx = -1, bestPathPos = Infinity;
                         for (var si = 0; si < stops.length; si++) {
-                            if (!stops[si].lat || !stops[si].lon) continue;
+                            if (stops[si].lat == null || stops[si].lon == null) continue;
                             var minDist = Infinity, minPos = Infinity;
                             for (var pi = 0; pi < pathPts.length; pi++) {
                                 var dd = _haversineMeters(stops[si].lat, stops[si].lon, pathPts[pi].latitude, pathPts[pi].longitude);
@@ -711,18 +765,10 @@
                             var existingContent = markersRef[bestIdx].popup.getOptions().content;
                             var updated = existingContent.replace('</div><!-- stop-popup-end -->', walkInfo + '</div><!-- stop-popup-end -->');
                             markersRef[bestIdx].popup.setOptions({ content: updated });
-
-                            if (_openStopPopup) { _openStopPopup.close(); }
-                            markersRef[bestIdx].popup.open(_map);
-                            _openStopPopup = markersRef[bestIdx].popup;
                         }
                     })
                     .catch(function (err) {
                         console.error('Route API failed, falling back to closest-by-air:', err);
-                        if (markersRef[closestIdx]) {
-                            markersRef[closestIdx].popup.open(_map);
-                            _openStopPopup = markersRef[closestIdx].popup;
-                        }
                     });
                 }
             });
@@ -740,5 +786,17 @@
             });
         },
     };
+
+    // Delegated click handler for bus popup details toggle (registered once)
+    document.addEventListener('click', function(e) {
+        var toggle = e.target.closest('[data-bus-toggle]');
+        if (!toggle) return;
+        var details = toggle.nextElementSibling;
+        if (details && details.hasAttribute('data-bus-details')) {
+            var open = details.style.display !== 'none';
+            details.style.display = open ? 'none' : 'block';
+            toggle.innerHTML = (open ? '&#9656;' : '&#9662;') + ' Details';
+        }
+    });
 
 }());

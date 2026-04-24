@@ -43,6 +43,9 @@ run-docker:
 	--network locate-my-bus_devcontainer_default \
 	ranjitnovascotia/locate-my-bus:latest
 
+refresh:
+	node --max-old-space-size=4096 scripts/refresh-agencies.js
+
 run-docker-web:
 	@test -n "$(DELETE_ACCESS_KEY)" || (echo "ERROR: DELETE_ACCESS_KEY is not set. Export it before running this target." && exit 1)
 	docker run \
