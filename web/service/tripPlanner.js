@@ -645,7 +645,7 @@ async function planTrip(pool, agencyId, originLat, originLng, destLat, destLng) 
     const seen = new Set();
     const unique = [];
     for (const r of allResults) {
-        const key = r.legs.filter(l => l.type === 'bus').map(l => l.routeId + ':' + l.tripId).join('|');
+        const key = r.legs.filter(l => l.type === 'bus').map(l => l.routeId + ':' + l.boardStop.id + ':' + l.alightStop.id).join('|');
         if (!seen.has(key)) {
             seen.add(key);
             unique.push(r);

@@ -762,18 +762,33 @@
                 const res = await fetch('/live/' + agencyId + '/' + routeId);
                 const vehicles = await res.json();
                 if (showAll) return vehicles;
+                // Try exact vehicle match first
                 const legVehicleId = busLegs[ri].vehicleId;
                 if (legVehicleId) {
                     const found = vehicles.find(function (v) { return v.vehicle_id === legVehicleId; });
                     if (found) return [found];
+                }
+                // Fallback: show the bus closest to the boarding stop
+                if (vehicles.length && busLegs[ri].boardStop) {
+                    const bLat = busLegs[ri].boardStop.lat;
+                    const bLng = busLegs[ri].boardStop.lng;
+                    let closest = vehicles[0], closestDist = Infinity;
+                    vehicles.forEach(function (v) {
+                        const d = haversineMeters(bLat, bLng, v.lat, v.lon);
+                        if (d < closestDist) { closestDist = d; closest = v; }
+                    });
+                    return [closest];
                 }
             } catch (e) { console.error('Live fetch for trip bus failed:', e); }
             return [];
         }));
         const allVehicles = results.flat();
 
+        // Pin the first vehicle from each leg so it opens with a popup
+        const actualPinnedIds = allVehicles.map(function (v) { return v.vehicle_id; });
+
         // Always call showTripBuses — even with empty array — to clear stale markers
-        mapAdapter.showTripBuses(allVehicles, pinnedIds);
+        mapAdapter.showTripBuses(allVehicles, actualPinnedIds);
     }
 
     /* ── Fetch live vehicles for current selection ── */
