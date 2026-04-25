@@ -6,6 +6,7 @@ const app = express();
 const port = 3000;
 const { Pool } = require('pg');
 const { onBoardAgency } = require('./service/addAgency');
+const { planTrip } = require('./service/tripPlanner');
 
 function dockerRequest(method, apiPath) {
     return new Promise((resolve, reject) => {
@@ -436,6 +437,27 @@ app.get('/api/stops/:agency_id/:trip_id', async (req, res) => {
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: 'Failed to fetch stops.' });
+    }
+});
+
+app.get('/api/trip-plan/:agency_id', async (req, res) => {
+    const { agency_id } = req.params;
+    const { originLat, originLng, destLat, destLng } = req.query;
+
+    if (!originLat || !originLng || !destLat || !destLng) {
+        return res.status(400).json({ error: 'Missing required query params: originLat, originLng, destLat, destLng' });
+    }
+
+    try {
+        const result = await planTrip(
+            pool, agency_id,
+            parseFloat(originLat), parseFloat(originLng),
+            parseFloat(destLat), parseFloat(destLng)
+        );
+        res.json(result);
+    } catch (err) {
+        console.error('[trip-plan]', err);
+        res.status(500).json({ error: 'Trip planning failed' });
     }
 });
 
