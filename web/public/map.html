@@ -690,6 +690,8 @@
         }));
 
         mapAdapter.drawTripPlan(enrichedLegs);
+        // Clear stale bus markers immediately, then fetch correct ones
+        mapAdapter.showTripBuses([], []);
         fetchTripBuses(document.getElementById('trip-show-all-toggle')?.checked || false);
     }
 
@@ -717,9 +719,8 @@
         }));
         const allVehicles = results.flat();
 
-        if (allVehicles.length) {
-            mapAdapter.showTripBuses(allVehicles, pinnedIds);
-        }
+        // Always call showTripBuses — even with empty array — to clear stale markers
+        mapAdapter.showTripBuses(allVehicles, pinnedIds);
     }
 
     /* ── Fetch live vehicles for current selection ── */
