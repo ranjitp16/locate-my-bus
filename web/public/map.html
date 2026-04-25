@@ -582,6 +582,21 @@
         return m < 1 ? '< 1 min' : m + ' min';
     }
 
+    function formatTime(date) {
+        const h = date.getHours(), m = date.getMinutes();
+        const suffix = h >= 12 ? 'PM' : 'AM';
+        const h12 = h > 12 ? h - 12 : (h === 0 ? 12 : h);
+        return h12 + ':' + String(m).padStart(2, '0') + ' ' + suffix;
+    }
+
+    function gtfsTimeToDate(gtfsTime) {
+        if (!gtfsTime) return null;
+        const parts = gtfsTime.split(':');
+        const d = new Date();
+        d.setHours(parseInt(parts[0], 10) % 24, parseInt(parts[1], 10), parseInt(parts[2] || '0', 10), 0);
+        return d;
+    }
+
     function renderTripResults() {
         let html = '<div class="trip-summary-row"><span>📍 My Location → 🏁 ' +
             (tripDestInput.value.length > 25 ? tripDestInput.value.substring(0, 25) + '…' : tripDestInput.value) +
@@ -590,25 +605,50 @@
         tripOptions.forEach(function (opt, idx) {
             let legsHtml = '';
             let detailHtml = '';
+            // Compute a running clock for timing
+            const nowDate = new Date();
+            let clock = new Date(nowDate);
+
             opt.legs.forEach(function (leg, li) {
                 if (li > 0) legsHtml += '<span class="arrow">→</span>';
                 if (leg.type === 'walk') {
                     legsHtml += '<span class="walk">🚶' + formatMinutes(leg.durationSeconds) + '</span>';
-                    detailHtml += 'Walk to <b>' + (leg.to.name || 'next stop') + '</b> (' + leg.distanceMeters + 'm)<br>';
+                    const leaveAt = formatTime(clock);
+                    clock = new Date(clock.getTime() + leg.durationSeconds * 1000);
+                    const arriveAt = formatTime(clock);
+                    if (li === 0) {
+                        detailHtml += '🚶 <b>' + leaveAt + '</b> — Leave, walk to <b>' + (leg.to.name || 'stop') + '</b> (' + leg.distanceMeters + 'm)<br>';
+                    } else {
+                        detailHtml += '🚶 <b>' + leaveAt + '</b> — Walk to <b>' + (leg.to.name || 'destination') + '</b> (' + leg.distanceMeters + 'm)<br>';
+                    }
+                    // If this is the last leg, show arrival time
+                    if (li === opt.legs.length - 1) {
+                        detailHtml += '🏁 <b>' + arriveAt + '</b> — Arrive at destination<br>';
+                    }
                 } else if (leg.type === 'bus') {
                     const color = leg.routeColor || '#1558d0';
                     legsHtml += '<span class="trip-leg-badge" style="background:' + color + ';">' + leg.routeId + '</span>';
-                    const boardTimeStr = leg.boardTime ? leg.boardTime.substring(0, 5) : '';
-                    detailHtml += 'Board <b>' + (leg.routeName || leg.routeId) + '</b>' +
-                        (boardTimeStr ? ' (~' + boardTimeStr + ')' : '') +
-                        ' · ' + (leg.numStops || '?') + ' stops<br>' +
-                        'Alight at <b>' + (leg.alightStop.name || 'stop') + '</b><br>';
+                    // Use scheduled board time if available, otherwise use running clock
+                    const boardDate = gtfsTimeToDate(leg.boardTime) || clock;
+                    const alightDate = gtfsTimeToDate(leg.alightTime);
+                    // Wait time between walk arrival and bus departure
+                    if (boardDate > clock) {
+                        clock = boardDate;
+                    }
+                    detailHtml += '🚏 <b>' + formatTime(boardDate) + '</b> — Board <b>' + (leg.routeName || leg.routeId) + '</b> at ' + (leg.boardStop.name || 'stop') + ' · ' + (leg.numStops || '?') + ' stops<br>';
+                    if (alightDate) {
+                        clock = alightDate;
+                        detailHtml += '🚏 <b>' + formatTime(alightDate) + '</b> — Get off at <b>' + (leg.alightStop.name || 'stop') + '</b><br>';
+                    }
                 }
             });
 
+            const departAt = formatTime(nowDate);
+            const arriveAt = formatTime(clock);
+
             html += '<div class="trip-option' + (idx === selectedTripIdx ? ' selected' : '') + '" data-trip-idx="' + idx + '">' +
                 '<div class="trip-option-header">' +
-                '<div class="trip-option-time">' + formatMinutes(opt.totalTime) + '</div>' +
+                '<div class="trip-option-time">' + formatMinutes(opt.totalTime) + ' <span style="font-weight:400;font-size:0.72rem;color:var(--text-muted);">' + departAt + ' → ' + arriveAt + '</span></div>' +
                 '<div class="trip-option-label">' + (opt.label || '') + '</div>' +
                 '</div>' +
                 '<div class="trip-option-legs">' + legsHtml + '</div>' +
