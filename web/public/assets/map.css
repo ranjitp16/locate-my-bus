@@ -344,3 +344,252 @@ body { overflow: hidden; }
     border-top: 1px solid var(--border, #d0d5dd);
 }
 
+/* ── Trip planning bottom sheet ── */
+#trip-sheet {
+    display: none;
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 1000;
+    background: var(--surface);
+    border-radius: 14px 14px 0 0;
+    box-shadow: 0 -2px 12px rgba(0,0,0,0.15);
+    padding: 12px 14px;
+    padding-bottom: max(16px, env(safe-area-inset-bottom, 16px));
+    max-height: 65vh;
+    overflow-y: auto;
+    transition: transform 0.25s ease;
+}
+#trip-sheet.open { display: block; }
+
+#trip-sheet-handle {
+    width: 36px;
+    height: 4px;
+    background: var(--border);
+    border-radius: 2px;
+    margin: 0 auto 10px;
+}
+
+#trip-sheet-title {
+    font-weight: 700;
+    font-size: 0.9rem;
+    margin-bottom: 10px;
+    color: var(--text);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.trip-origin-row,
+.trip-dest-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.trip-origin-pill {
+    flex: 1;
+    padding: 6px 10px;
+    background: rgba(41,121,255,0.08);
+    border: 1px solid #2979ff;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    color: #2979ff;
+}
+
+#trip-dest-input {
+    flex: 1;
+    padding: 6px 10px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 0.8rem;
+    background: var(--bg);
+    color: var(--text);
+    font-family: inherit;
+}
+#trip-dest-input:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+#trip-dest-pin-btn {
+    width: 32px;
+    height: 32px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--surface-alt, rgba(128,128,128,0.1));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.85rem;
+    cursor: pointer;
+}
+#trip-dest-pin-btn:hover { border-color: var(--accent); }
+
+/* ── Geocode dropdown ── */
+#geocode-dropdown {
+    position: absolute;
+    left: 14px;
+    right: 14px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    z-index: 1001;
+    display: none;
+    max-height: 200px;
+    overflow-y: auto;
+}
+#geocode-dropdown.open { display: block; }
+.geocode-item {
+    padding: 8px 12px;
+    font-size: 0.78rem;
+    color: var(--text);
+    cursor: pointer;
+    border-bottom: 1px solid var(--border);
+}
+.geocode-item:last-child { border-bottom: none; }
+.geocode-item:hover { background: var(--surface-alt, rgba(128,128,128,0.08)); }
+
+/* ── Trip option cards ── */
+.trip-summary-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+    font-size: 0.78rem;
+    color: var(--text-muted);
+}
+.trip-summary-row a {
+    color: var(--accent);
+    cursor: pointer;
+    text-decoration: none;
+    font-size: 0.72rem;
+}
+
+.trip-option {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px;
+    margin-bottom: 8px;
+    cursor: pointer;
+    transition: border-color 0.15s;
+}
+.trip-option:hover { border-color: var(--accent); }
+.trip-option.selected {
+    border: 2px solid #2979ff;
+    background: rgba(41,121,255,0.04);
+}
+
+.trip-option-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.trip-option-time {
+    font-weight: 700;
+    font-size: 0.85rem;
+    color: var(--text);
+}
+.trip-option-label {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+}
+
+.trip-option-legs {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-top: 6px;
+    font-size: 0.75rem;
+    flex-wrap: wrap;
+}
+.trip-option-legs .walk { color: var(--text-muted); }
+.trip-option-legs .arrow { color: #ccc; }
+
+.trip-leg-badge {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 0.7rem;
+    color: #fff;
+    font-weight: 600;
+}
+
+.trip-option-details {
+    display: none;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border);
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    line-height: 1.7;
+}
+.trip-option.selected .trip-option-details { display: block; }
+
+/* ── Trip controls ── */
+.trip-show-all {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border);
+    font-size: 0.78rem;
+    color: var(--text-muted);
+}
+
+#trip-loading {
+    text-align: center;
+    padding: 16px 0;
+    color: var(--text-muted);
+    font-size: 0.8rem;
+}
+#trip-loading .spinner {
+    display: inline-block;
+    width: 18px;
+    height: 18px;
+    border: 2px solid #2979ff;
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* ── Destination pin (green teardrop) ── */
+.dest-pin {
+    width: 24px;
+    height: 34px;
+    position: relative;
+    cursor: grab;
+}
+.dest-pin:active { cursor: grabbing; }
+.dest-pin::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 50%;
+    width: 24px;
+    height: 24px;
+    background: #2e7d32;
+    border: 2.5px solid #fff;
+    border-radius: 50% 50% 50% 0;
+    transform: translateX(-50%) rotate(-45deg);
+    box-shadow: 0 2px 6px rgba(0,0,0,0.35);
+}
+.dest-pin::after {
+    content: '';
+    position: absolute;
+    top: 6px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 8px;
+    height: 8px;
+    background: #fff;
+    border-radius: 50%;
+}
+
