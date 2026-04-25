@@ -6,6 +6,9 @@ const MANHATTAN_FACTOR = 1.4;
 const DEFAULT_RADIUS = 800;
 const EXPANDED_RADIUS = 1500;
 const TWO_XFER_PRUNE_RADIUS = 2000; // heuristic: skip R2 if no stops within 2km of dest
+const MAX_ONE_XFER_RESULTS = 100;   // cap 1-transfer candidates to avoid OOM
+const MAX_TWO_XFER_RESULTS = 50;    // cap 2-transfer candidates
+const MAX_TWO_XFER_ITERATIONS = 5000; // hard iteration limit for 2-transfer inner loops
 
 function haversineMeters(lat1, lng1, lat2, lng2) {
     const R = 6371000;
@@ -175,14 +178,25 @@ async function findOneTransferRoutes(pool, agencyId, origin, dest, stopsNearA, s
     }
 
     const results = [];
+    // Cache transfer stop lookups to avoid repeated DB calls for same R1×R2 pair
+    const xferCache = new Map();
 
     for (const r1 of r1Routes) {
+        if (results.length >= MAX_ONE_XFER_RESULTS) break;
         const r1ByTrip = tripsByRoute[r1];
         for (const r2 of r2Routes) {
+            if (results.length >= MAX_ONE_XFER_RESULTS) break;
             if (r1 === r2) continue;
 
-            // Find stops shared between R1 and R2
-            const transferStops = await repo.getTransferStops(pool, agencyId, r1, r2);
+            // Find stops shared between R1 and R2 (cached)
+            const cacheKey = r1 < r2 ? r1 + '|' + r2 : r2 + '|' + r1;
+            let transferStops;
+            if (xferCache.has(cacheKey)) {
+                transferStops = xferCache.get(cacheKey);
+            } else {
+                transferStops = await repo.getTransferStops(pool, agencyId, r1, r2);
+                xferCache.set(cacheKey, transferStops);
+            }
             if (!transferStops.length) continue;
 
             const r2ByTrip = tripsByRoute[r2];
@@ -305,8 +319,10 @@ async function findOneTransferRoutes(pool, agencyId, origin, dest, stopsNearA, s
 }
 
 async function findTwoTransferRoutes(pool, agencyId, origin, dest, stopsNearA, stopsNearB, routeStopIndex, nowSecs, bestSoFar) {
-    // stopsNearB unused here; 2-xfer uses TWO_XFER_PRUNE_RADIUS stop set instead
     const nearAIds = new Set(stopsNearA.map(s => s.id));
+    let iterations = 0;
+    // Cache getTripStopTimes to avoid repeated fetches for the same trip
+    const stopTimesCache = new Map();
 
     // Stops near dest within the tighter prune radius (used to pre-filter R3 candidates in SQL)
     const stopsNearDestPrune = await repo.getStopsNearPoint(pool, agencyId, dest.lat, dest.lng, TWO_XFER_PRUNE_RADIUS);
@@ -328,6 +344,7 @@ async function findTwoTransferRoutes(pool, agencyId, origin, dest, stopsNearA, s
     const results = [];
 
     for (const r1 of r1Routes) {
+        if (iterations >= MAX_TWO_XFER_ITERATIONS || results.length >= MAX_TWO_XFER_RESULTS) break;
         const r1Entries = byRoute[r1];
 
         // Group R1 entries by trip
@@ -338,11 +355,13 @@ async function findTwoTransferRoutes(pool, agencyId, origin, dest, stopsNearA, s
         }
 
         for (const [r1TripId, r1TripEntries] of Object.entries(r1ByTrip)) {
+            if (iterations >= MAX_TWO_XFER_ITERATIONS || results.length >= MAX_TWO_XFER_RESULTS) break;
             const boardCandidates = r1TripEntries.filter(e => nearAIds.has(e.stop_id));
             if (!boardCandidates.length) continue;
 
-            // Fetch full stop-time sequence for this R1 trip to enumerate T1 candidates
-            const r1StopTimes = await repo.getTripStopTimes(pool, agencyId, r1TripId);
+            // Fetch full stop-time sequence (cached) for this R1 trip to enumerate T1 candidates
+            if (!stopTimesCache.has(r1TripId)) stopTimesCache.set(r1TripId, await repo.getTripStopTimes(pool, agencyId, r1TripId));
+            const r1StopTimes = stopTimesCache.get(r1TripId);
             if (!r1StopTimes.length) continue;
 
             for (const board of boardCandidates) {
@@ -360,6 +379,8 @@ async function findTwoTransferRoutes(pool, agencyId, origin, dest, stopsNearA, s
 
                 // Enumerate T1: every stop on R1 beyond the boarding stop
                 for (const t1Stop of r1StopTimes) {
+                    iterations++;
+                    if (iterations >= MAX_TWO_XFER_ITERATIONS || results.length >= MAX_TWO_XFER_RESULTS) break;
                     if (t1Stop.stop_sequence <= board.stop_sequence) continue;
 
                     const r1ArrT1Secs = gtfsTimeToSeconds(t1Stop.arrival_time);
@@ -404,7 +425,8 @@ async function findTwoTransferRoutes(pool, agencyId, origin, dest, stopsNearA, s
                                 walkToBoard + waitForR1 + ride1Time + transferWait1 >= bestSoFar) continue;
 
                             const r2TripId = r2TripRow.trip_id;
-                            const r2StopTimes = await repo.getTripStopTimes(pool, agencyId, r2TripId);
+                            if (!stopTimesCache.has(r2TripId)) stopTimesCache.set(r2TripId, await repo.getTripStopTimes(pool, agencyId, r2TripId));
+                            const r2StopTimes = stopTimesCache.get(r2TripId);
                             if (!r2StopTimes.length) continue;
 
                             // Find T1 in R2's stop times to establish sequence
@@ -463,7 +485,8 @@ async function findTwoTransferRoutes(pool, agencyId, origin, dest, stopsNearA, s
                                         const transferWait2 = r3DepT2Secs - r2ArrT2Secs;
 
                                         const r3TripId = r3TripRow.trip_id;
-                                        const r3StopTimes = await repo.getTripStopTimes(pool, agencyId, r3TripId);
+                                        if (!stopTimesCache.has(r3TripId)) stopTimesCache.set(r3TripId, await repo.getTripStopTimes(pool, agencyId, r3TripId));
+                                        const r3StopTimes = stopTimesCache.get(r3TripId);
                                         if (!r3StopTimes.length) continue;
 
                                         // Find T2 entry in R3's stop times
@@ -603,8 +626,14 @@ async function planTrip(pool, agencyId, originLat, originLng, destLat, destLng) 
     let allResults = [...direct, ...oneXfer];
     const bestSoFar = allResults.reduce((min, r) => r.totalTime < min ? r.totalTime : min, Infinity);
 
-    const twoXfer = await findTwoTransferRoutes(pool, agencyId, origin, dest, stopsNearA, stopsNearB, routeStopIndex, nowSecs, bestSoFar);
-    allResults = [...allResults, ...twoXfer];
+    // Skip expensive 2-transfer search if we already have enough diverse results
+    const uniqueRouteKeys = new Set(allResults.map(r =>
+        r.legs.filter(l => l.type === 'bus').map(l => l.routeId).join('|')
+    ));
+    if (uniqueRouteKeys.size < 3) {
+        const twoXfer = await findTwoTransferRoutes(pool, agencyId, origin, dest, stopsNearA, stopsNearB, routeStopIndex, nowSecs, bestSoFar);
+        allResults = [...allResults, ...twoXfer];
+    }
 
     if (!allResults.length) {
         return { options: [], error: 'No routes found for this trip' };
