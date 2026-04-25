@@ -62,6 +62,17 @@
         }
     }
 
+    function _clearDestMarker() {
+        if (_destMarker) {
+            if (_destDragHandler) {
+                _map.events.remove('dragend', _destMarker, _destDragHandler);
+                _destDragHandler = null;
+            }
+            _map.markers.remove(_destMarker);
+            _destMarker = null;
+        }
+    }
+
     // ── Helpers ────────────────────────────────────────────────────────────
 
     function _escapeHtml(v) {
@@ -254,7 +265,7 @@
         _map.events.add('move', update);
         update();
 
-        return { svg: svg, coords: coords, updateFn: update };
+        return { svg: svg, updateFn: update };
     }
 
     // ── Route-following animation helpers ───────────────────────────────────
@@ -837,14 +848,7 @@
 
         setDestinationPin: function (lat, lng, onDragEnd) {
             _whenReady(function () {
-                if (_destMarker) {
-                    if (_destDragHandler) {
-                        _map.events.remove('dragend', _destMarker, _destDragHandler);
-                        _destDragHandler = null;
-                    }
-                    _map.markers.remove(_destMarker);
-                    _destMarker = null;
-                }
+                _clearDestMarker();
 
                 _destMarker = new atlas.HtmlMarker({
                     htmlContent: '<div class="dest-pin"></div>',
@@ -863,16 +867,7 @@
         },
 
         clearDestinationPin: function () {
-            _whenReady(function () {
-                if (_destMarker) {
-                    if (_destDragHandler) {
-                        _map.events.remove('dragend', _destMarker, _destDragHandler);
-                        _destDragHandler = null;
-                    }
-                    _map.markers.remove(_destMarker);
-                    _destMarker = null;
-                }
-            });
+            _whenReady(_clearDestMarker);
         },
 
         // ── Trip plan rendering ─────────────────────────────────────────────
@@ -888,16 +883,13 @@
                 legs.forEach(function (leg) {
                     if (leg.type === 'walk' && leg.walkPath && leg.walkPath.length >= 2) {
                         var walkCoords = leg.walkPath.map(function (p) { return [p.lng, p.lat]; });
-                        var entry = _createColoredSvg(walkCoords, '#2e7d32', true);
-                        _tripSvgs.push(entry);
+                        _tripSvgs.push(_createColoredSvg(walkCoords, '#2e7d32', true));
                     } else if (leg.type === 'bus' && leg.shapePath && leg.shapePath.length >= 2) {
                         var color = leg.routeColor || palette[busIndex % palette.length];
                         busIndex++;
                         var busCoords = leg.shapePath.map(function (p) { return [p.lon, p.lat]; });
-                        var entry = _createColoredSvg(busCoords, color, false);
-                        _tripSvgs.push(entry);
+                        _tripSvgs.push(_createColoredSvg(busCoords, color, false));
 
-                        // Board stop marker
                         var boardMarker = new atlas.HtmlMarker({
                             htmlContent: '<div class="stop-dot"></div>',
                             position: [leg.boardStop.lng, leg.boardStop.lat],
@@ -906,7 +898,6 @@
                         _map.markers.add(boardMarker);
                         _tripMarkers.push(boardMarker);
 
-                        // Alight stop marker
                         var alightMarker = new atlas.HtmlMarker({
                             htmlContent: '<div class="stop-dot"></div>',
                             position: [leg.alightStop.lng, leg.alightStop.lat],
@@ -922,10 +913,8 @@
         clearTripPlan: function () {
             _whenReady(function () {
                 _tripSvgs.forEach(function (entry) {
-                    if (entry.svg) {
-                        _map.events.remove('move', entry.updateFn);
-                        entry.svg.remove();
-                    }
+                    _map.events.remove('move', entry.updateFn);
+                    entry.svg.remove();
                 });
                 _tripSvgs = [];
                 _tripMarkers.forEach(function (m) { _map.markers.remove(m); });
