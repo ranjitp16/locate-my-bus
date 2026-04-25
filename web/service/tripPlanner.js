@@ -52,7 +52,6 @@ async function findDirectRoutes(pool, agencyId, origin, dest, stopsNearA, stopsN
     const nearAIds = new Set(stopsNearA.map(s => s.id));
     const nearBIds = new Set(stopsNearB.map(s => s.id));
 
-    // Group index by route_id
     const byRoute = {};
     for (const row of routeStopIndex) {
         if (!byRoute[row.route_id]) byRoute[row.route_id] = [];
@@ -92,11 +91,14 @@ async function findDirectRoutes(pool, agencyId, origin, dest, stopsNearA, stopsN
                     // Guard: stop may be missing coords (filtered out of nearby query)
                     if (!boardStop || !alightStop) continue;
 
-                    const walkToBoard = estimateWalkSeconds(origin.lat, origin.lng, boardStop.lat, boardStop.lon);
+                    // Compute Manhattan distances once — reused for both distanceMeters and durationSeconds
+                    const distToBoard = haversineMeters(origin.lat, origin.lng, boardStop.lat, boardStop.lon) * MANHATTAN_FACTOR;
+                    const distFromAlight = haversineMeters(alightStop.lat, alightStop.lon, dest.lat, dest.lng) * MANHATTAN_FACTOR;
+                    const walkToBoard = Math.round(distToBoard / WALK_SPEED_MS);
+                    const walkFromAlight = Math.round(distFromAlight / WALK_SPEED_MS);
                     const waitTime = Math.max(0, depSecs - nowSecs - walkToBoard);
                     // Handle overnight trips where arr < dep in seconds (GTFS >24h not always used)
                     const rideTime = arrSecs >= depSecs ? arrSecs - depSecs : arrSecs + 86400 - depSecs;
-                    const walkFromAlight = estimateWalkSeconds(alightStop.lat, alightStop.lon, dest.lat, dest.lng);
                     const totalTime = walkToBoard + waitTime + rideTime + walkFromAlight;
 
                     results.push({
@@ -110,7 +112,7 @@ async function findDirectRoutes(pool, agencyId, origin, dest, stopsNearA, stopsN
                                 type: 'walk',
                                 from: { lat: origin.lat, lng: origin.lng, name: 'Your location' },
                                 to: { lat: boardStop.lat, lng: boardStop.lon, name: boardStop.name },
-                                distanceMeters: Math.round(haversineMeters(origin.lat, origin.lng, boardStop.lat, boardStop.lon) * MANHATTAN_FACTOR),
+                                distanceMeters: Math.round(distToBoard),
                                 durationSeconds: walkToBoard,
                             },
                             {
@@ -129,7 +131,7 @@ async function findDirectRoutes(pool, agencyId, origin, dest, stopsNearA, stopsN
                                 type: 'walk',
                                 from: { lat: alightStop.lat, lng: alightStop.lon, name: alightStop.name },
                                 to: { lat: dest.lat, lng: dest.lng, name: 'Destination' },
-                                distanceMeters: Math.round(haversineMeters(alightStop.lat, alightStop.lon, dest.lat, dest.lng) * MANHATTAN_FACTOR),
+                                distanceMeters: Math.round(distFromAlight),
                                 durationSeconds: walkFromAlight,
                             },
                         ],
