@@ -13,6 +13,10 @@
     let _busMarkerMap = {}; // { [vehicleId]: { marker, popup } }
     let _locMarker    = null; // atlas.HtmlMarker — user location dot
     let _locDragHandler = null; // stored dragend handler for proper removal
+    let _destMarker     = null; // atlas.HtmlMarker — destination pin
+    let _destDragHandler = null; // stored dragend handler for destination pin
+    let _tripSvgs    = [];       // array of { svg, coords, updateFn } for multi-leg SVG overlays
+    let _tripMarkers = [];       // array of atlas.HtmlMarker for trip stop markers
 
     // One-time event callbacks (registered by map.html once on page load)
     let _markerClickFn      = null;
@@ -217,6 +221,40 @@
             _walkSvgEl = null;
         }
         _walkSvgCoords = null;
+    }
+
+    // ── Colored SVG overlay — used for trip plan legs ───────────────────────
+
+    function _createColoredSvg(coords, color, dashed) {
+        var svg = _svgEl('svg', {});
+        svg.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:visible;';
+
+        var base = _svgEl('path', { fill: 'none', stroke: color, 'stroke-width': '4', 'stroke-opacity': dashed ? '0.4' : '0.7', class: 'trip-leg-base' });
+        svg.appendChild(base);
+
+        if (dashed) {
+            var dash = _svgEl('path', { fill: 'none', stroke: color, 'stroke-width': '4', 'stroke-dasharray': '12 8', class: 'trip-leg-dash' });
+            dash.style.animation = 'dash-flow 1.8s linear infinite';
+            svg.appendChild(dash);
+        }
+
+        var container = _map.getCanvasContainer();
+        var markerContainer = container.querySelector('.marker-collection-container');
+        if (markerContainer) { container.insertBefore(svg, markerContainer); }
+        else { container.appendChild(svg); }
+
+        function update() {
+            var pixels = _map.positionsToPixels(coords);
+            if (!pixels || pixels.length < 2) return;
+            var d = 'M ' + pixels.map(function (p) { return p[0].toFixed(1) + ',' + p[1].toFixed(1); }).join(' L ');
+            base.setAttribute('d', d);
+            if (dashed) svg.querySelector('.trip-leg-dash').setAttribute('d', d);
+        }
+
+        _map.events.add('move', update);
+        update();
+
+        return { svg: svg, coords: coords, updateFn: update };
     }
 
     // ── Route-following animation helpers ───────────────────────────────────
@@ -793,6 +831,121 @@
                 _stopMarkers = [];
                 if (_openStopPopup) { _openStopPopup.close(); _openStopPopup = null; }
             });
+        },
+
+        // ── Destination pin ─────────────────────────────────────────────────
+
+        setDestinationPin: function (lat, lng, onDragEnd) {
+            _whenReady(function () {
+                if (_destMarker) {
+                    if (_destDragHandler) {
+                        _map.events.remove('dragend', _destMarker, _destDragHandler);
+                        _destDragHandler = null;
+                    }
+                    _map.markers.remove(_destMarker);
+                    _destMarker = null;
+                }
+
+                _destMarker = new atlas.HtmlMarker({
+                    htmlContent: '<div class="dest-pin"></div>',
+                    position: [lng, lat],
+                    anchor: 'bottom',
+                    draggable: true,
+                });
+                _map.markers.add(_destMarker);
+
+                _destDragHandler = function () {
+                    var pos = _destMarker.getOptions().position;
+                    if (onDragEnd) onDragEnd(pos[1], pos[0]);
+                };
+                _map.events.add('dragend', _destMarker, _destDragHandler);
+            });
+        },
+
+        clearDestinationPin: function () {
+            _whenReady(function () {
+                if (_destMarker) {
+                    if (_destDragHandler) {
+                        _map.events.remove('dragend', _destMarker, _destDragHandler);
+                        _destDragHandler = null;
+                    }
+                    _map.markers.remove(_destMarker);
+                    _destMarker = null;
+                }
+            });
+        },
+
+        // ── Trip plan rendering ─────────────────────────────────────────────
+
+        drawTripPlan: function (legs) {
+            var self = this;
+            _whenReady(function () {
+                self.clearTripPlan();
+
+                var palette = ['#1558d0', '#e53935', '#2e7d32', '#f57c00', '#7b1fa2'];
+                var busIndex = 0;
+
+                legs.forEach(function (leg) {
+                    if (leg.type === 'walk' && leg.walkPath && leg.walkPath.length >= 2) {
+                        var walkCoords = leg.walkPath.map(function (p) { return [p.lng, p.lat]; });
+                        var entry = _createColoredSvg(walkCoords, '#2e7d32', true);
+                        _tripSvgs.push(entry);
+                    } else if (leg.type === 'bus' && leg.shapePath && leg.shapePath.length >= 2) {
+                        var color = leg.routeColor || palette[busIndex % palette.length];
+                        busIndex++;
+                        var busCoords = leg.shapePath.map(function (p) { return [p.lon, p.lat]; });
+                        var entry = _createColoredSvg(busCoords, color, false);
+                        _tripSvgs.push(entry);
+
+                        // Board stop marker
+                        var boardMarker = new atlas.HtmlMarker({
+                            htmlContent: '<div class="stop-dot"></div>',
+                            position: [leg.boardStop.lng, leg.boardStop.lat],
+                            anchor: 'center',
+                        });
+                        _map.markers.add(boardMarker);
+                        _tripMarkers.push(boardMarker);
+
+                        // Alight stop marker
+                        var alightMarker = new atlas.HtmlMarker({
+                            htmlContent: '<div class="stop-dot"></div>',
+                            position: [leg.alightStop.lng, leg.alightStop.lat],
+                            anchor: 'center',
+                        });
+                        _map.markers.add(alightMarker);
+                        _tripMarkers.push(alightMarker);
+                    }
+                });
+            });
+        },
+
+        clearTripPlan: function () {
+            _whenReady(function () {
+                _tripSvgs.forEach(function (entry) {
+                    if (entry.svg) {
+                        _map.events.remove('move', entry.updateFn);
+                        entry.svg.remove();
+                    }
+                });
+                _tripSvgs = [];
+                _tripMarkers.forEach(function (m) { _map.markers.remove(m); });
+                _tripMarkers = [];
+            });
+        },
+
+        // ── Trip bus display ────────────────────────────────────────────────
+
+        showTripBuses: function (vehicles, pinnedVehicleIds) {
+            _whenReady(function () {
+                Object.keys(_busMarkerMap).forEach(function (id) {
+                    _map.markers.remove(_busMarkerMap[id].marker);
+                    _busMarkerMap[id].popup.close();
+                    delete _busMarkerMap[id];
+                });
+                _busMarkerMap = {};
+            });
+            var pinnedId = pinnedVehicleIds && pinnedVehicleIds.length ? pinnedVehicleIds[0] : null;
+            this.updateBusMarkers(vehicles, pinnedId, null, null);
         },
     };
 
