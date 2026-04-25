@@ -144,4 +144,419 @@ async function findDirectRoutes(pool, agencyId, origin, dest, stopsNearA, stopsN
     return results;
 }
 
-module.exports = { haversineMeters, estimateWalkSeconds, gtfsTimeToSeconds, nowAsSeconds, findNearbyStops, findDirectRoutes };
+async function findOneTransferRoutes(pool, agencyId, origin, dest, stopsNearA, stopsNearB, routeStopIndex, nowSecs) {
+    const nearAIds = new Set(stopsNearA.map(s => s.id));
+    const nearBIds = new Set(stopsNearB.map(s => s.id));
+
+    // Group routeStopIndex by route → trip → entries
+    const byRoute = {};
+    for (const row of routeStopIndex) {
+        if (!byRoute[row.route_id]) byRoute[row.route_id] = [];
+        byRoute[row.route_id].push(row);
+    }
+
+    // Identify which routes serve stops near A (R1 candidates) and near B (R2 candidates)
+    const r1Routes = [];
+    const r2Routes = [];
+    for (const [routeId, entries] of Object.entries(byRoute)) {
+        if (entries.some(e => nearAIds.has(e.stop_id))) r1Routes.push(routeId);
+        if (entries.some(e => nearBIds.has(e.stop_id))) r2Routes.push(routeId);
+    }
+
+    const results = [];
+
+    for (const r1 of r1Routes) {
+        for (const r2 of r2Routes) {
+            if (r1 === r2) continue;
+
+            // Find stops shared between R1 and R2
+            const transferStops = await repo.getTransferStops(pool, agencyId, r1, r2);
+            if (!transferStops.length) continue;
+
+            // Group R1 and R2 trips
+            const r1ByTrip = {};
+            for (const e of byRoute[r1]) {
+                if (!r1ByTrip[e.trip_id]) r1ByTrip[e.trip_id] = [];
+                r1ByTrip[e.trip_id].push(e);
+            }
+            const r2ByTrip = {};
+            for (const e of byRoute[r2]) {
+                if (!r2ByTrip[e.trip_id]) r2ByTrip[e.trip_id] = [];
+                r2ByTrip[e.trip_id].push(e);
+            }
+
+            for (const xferStop of transferStops) {
+                // Find R1 trips that board near A and alight at this transfer stop
+                for (const [r1TripId, r1Entries] of Object.entries(r1ByTrip)) {
+                    const boardCandidates = r1Entries.filter(e => nearAIds.has(e.stop_id));
+                    const xferEntry = r1Entries.find(e => e.stop_id === xferStop.stop_id);
+                    if (!xferEntry) continue;
+
+                    const xferArrSecs = gtfsTimeToSeconds(xferEntry.arrival_time);
+                    if (xferArrSecs === null || isNaN(xferArrSecs)) continue;
+
+                    for (const board of boardCandidates) {
+                        if (xferEntry.stop_sequence <= board.stop_sequence) continue;
+
+                        const depSecs = gtfsTimeToSeconds(board.departure_time);
+                        if (depSecs === null || isNaN(depSecs) || depSecs < nowSecs) continue;
+
+                        const boardStop = stopsNearA.find(s => s.id === board.stop_id);
+                        if (!boardStop) continue;
+
+                        const distToBoard = haversineMeters(origin.lat, origin.lng, boardStop.lat, boardStop.lon) * MANHATTAN_FACTOR;
+                        const walkToBoard = Math.round(distToBoard / WALK_SPEED_MS);
+                        // Must be able to walk to the board stop in time
+                        if (nowSecs + walkToBoard > depSecs) continue;
+
+                        const waitForR1 = Math.max(0, depSecs - nowSecs - walkToBoard);
+                        const ride1Time = xferArrSecs >= depSecs
+                            ? xferArrSecs - depSecs
+                            : xferArrSecs + 86400 - depSecs;
+
+                        // Find R2 trips that depart the transfer stop after R1 arrives and alight near B
+                        for (const [r2TripId, r2Entries] of Object.entries(r2ByTrip)) {
+                            const xferDep = r2Entries.find(e => e.stop_id === xferStop.stop_id);
+                            if (!xferDep) continue;
+
+                            const xferDepSecs = gtfsTimeToSeconds(xferDep.departure_time);
+                            if (xferDepSecs === null || isNaN(xferDepSecs)) continue;
+
+                            // R2 must depart the transfer stop after R1 arrives there
+                            if (xferDepSecs < xferArrSecs) continue;
+                            const transferWait = xferDepSecs - xferArrSecs;
+
+                            const alightCandidates = r2Entries.filter(e =>
+                                nearBIds.has(e.stop_id) && e.stop_sequence > xferDep.stop_sequence
+                            );
+
+                            for (const alight of alightCandidates) {
+                                const arrSecs = gtfsTimeToSeconds(alight.arrival_time);
+                                if (arrSecs === null || isNaN(arrSecs)) continue;
+
+                                const alightStop = stopsNearB.find(s => s.id === alight.stop_id);
+                                if (!alightStop) continue;
+
+                                const distFromAlight = haversineMeters(alightStop.lat, alightStop.lon, dest.lat, dest.lng) * MANHATTAN_FACTOR;
+                                const walkFromAlight = Math.round(distFromAlight / WALK_SPEED_MS);
+                                const ride2Time = arrSecs >= xferDepSecs
+                                    ? arrSecs - xferDepSecs
+                                    : arrSecs + 86400 - xferDepSecs;
+                                const totalTime = walkToBoard + waitForR1 + ride1Time + transferWait + ride2Time + walkFromAlight;
+
+                                results.push({
+                                    totalTime,
+                                    totalWalkTime: walkToBoard + walkFromAlight,
+                                    totalRideTime: ride1Time + ride2Time,
+                                    waitTime: waitForR1 + transferWait,
+                                    transfers: 1,
+                                    legs: [
+                                        {
+                                            type: 'walk',
+                                            from: { lat: origin.lat, lng: origin.lng, name: 'Your location' },
+                                            to: { lat: boardStop.lat, lng: boardStop.lon, name: boardStop.name },
+                                            distanceMeters: Math.round(distToBoard),
+                                            durationSeconds: walkToBoard,
+                                        },
+                                        {
+                                            type: 'bus',
+                                            routeId: r1,
+                                            tripId: r1TripId,
+                                            shapeId: board.shape_id,
+                                            boardStop: { id: board.stop_id, name: boardStop.name, lat: boardStop.lat, lng: boardStop.lon },
+                                            alightStop: { id: xferStop.stop_id, name: xferStop.name, lat: xferStop.lat, lng: xferStop.lon },
+                                            boardTime: board.departure_time,
+                                            alightTime: xferEntry.arrival_time,
+                                            boardSequence: board.stop_sequence,
+                                            alightSequence: xferEntry.stop_sequence,
+                                        },
+                                        {
+                                            type: 'bus',
+                                            routeId: r2,
+                                            tripId: r2TripId,
+                                            shapeId: xferDep.shape_id,
+                                            boardStop: { id: xferStop.stop_id, name: xferStop.name, lat: xferStop.lat, lng: xferStop.lon },
+                                            alightStop: { id: alight.stop_id, name: alightStop.name, lat: alightStop.lat, lng: alightStop.lon },
+                                            boardTime: xferDep.departure_time,
+                                            alightTime: alight.arrival_time,
+                                            boardSequence: xferDep.stop_sequence,
+                                            alightSequence: alight.stop_sequence,
+                                        },
+                                        {
+                                            type: 'walk',
+                                            from: { lat: alightStop.lat, lng: alightStop.lon, name: alightStop.name },
+                                            to: { lat: dest.lat, lng: dest.lng, name: 'Destination' },
+                                            distanceMeters: Math.round(distFromAlight),
+                                            durationSeconds: walkFromAlight,
+                                        },
+                                    ],
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    return results;
+}
+
+async function findTwoTransferRoutes(pool, agencyId, origin, dest, stopsNearA, stopsNearB, routeStopIndex, nowSecs, bestSoFar) {
+    const nearAIds = new Set(stopsNearA.map(s => s.id));
+
+    // Stops near dest within the tighter prune radius (used to check R3 relevance)
+    const stopsNearDestPrune = await repo.getStopsNearPoint(pool, agencyId, dest.lat, dest.lng, TWO_XFER_PRUNE_RADIUS);
+    const nearDestPruneIds = new Set(stopsNearDestPrune.map(s => s.id));
+
+    // Group routeStopIndex by route
+    const byRoute = {};
+    for (const row of routeStopIndex) {
+        if (!byRoute[row.route_id]) byRoute[row.route_id] = [];
+        byRoute[row.route_id].push(row);
+    }
+
+    // R1 candidates: routes serving stops near A
+    const r1Routes = Object.keys(byRoute).filter(routeId =>
+        byRoute[routeId].some(e => nearAIds.has(e.stop_id))
+    );
+
+    const results = [];
+
+    for (const r1 of r1Routes) {
+        const r1Entries = byRoute[r1];
+
+        // Group R1 entries by trip
+        const r1ByTrip = {};
+        for (const e of r1Entries) {
+            if (!r1ByTrip[e.trip_id]) r1ByTrip[e.trip_id] = [];
+            r1ByTrip[e.trip_id].push(e);
+        }
+
+        for (const [r1TripId, r1TripEntries] of Object.entries(r1ByTrip)) {
+            const boardCandidates = r1TripEntries.filter(e => nearAIds.has(e.stop_id));
+            if (!boardCandidates.length) continue;
+
+            // Fetch full stop-time sequence for this R1 trip to enumerate T1 candidates
+            const r1StopTimes = await repo.getTripStopTimes(pool, agencyId, r1TripId);
+            if (!r1StopTimes.length) continue;
+
+            for (const board of boardCandidates) {
+                const depSecs = gtfsTimeToSeconds(board.departure_time);
+                if (depSecs === null || isNaN(depSecs) || depSecs < nowSecs) continue;
+
+                const boardStop = stopsNearA.find(s => s.id === board.stop_id);
+                if (!boardStop) continue;
+
+                const distToBoard = haversineMeters(origin.lat, origin.lng, boardStop.lat, boardStop.lon) * MANHATTAN_FACTOR;
+                const walkToBoard = Math.round(distToBoard / WALK_SPEED_MS);
+                if (nowSecs + walkToBoard > depSecs) continue;
+
+                const waitForR1 = Math.max(0, depSecs - nowSecs - walkToBoard);
+
+                // Enumerate T1: every stop on R1 beyond the boarding stop
+                for (const t1Stop of r1StopTimes) {
+                    if (t1Stop.stop_sequence <= board.stop_sequence) continue;
+
+                    const r1ArrT1Secs = gtfsTimeToSeconds(t1Stop.arrival_time);
+                    if (r1ArrT1Secs === null || isNaN(r1ArrT1Secs)) continue;
+
+                    const ride1Time = r1ArrT1Secs >= depSecs
+                        ? r1ArrT1Secs - depSecs
+                        : r1ArrT1Secs + 86400 - depSecs;
+
+                    // Prune: if we've already exceeded bestSoFar before even starting R2
+                    if (bestSoFar !== undefined && walkToBoard + waitForR1 + ride1Time >= bestSoFar) continue;
+
+                    // Find R2 candidates: routes serving T1, excluding R1
+                    const { rows: r2Candidates } = await pool.query(
+                        `SELECT DISTINCT t.route_id
+                         FROM public.stop_time st
+                         JOIN public.trip t ON t.agency_id = st.agency_id AND t.id = st.trip_id
+                         WHERE st.agency_id = $1 AND st.stop_id = $2 AND t.route_id != $3`,
+                        [agencyId, t1Stop.stop_id, r1]
+                    );
+
+                    for (const { route_id: r2 } of r2Candidates) {
+                        // Find R2 trips departing T1 after R1 arrives at T1
+                        const { rows: r2TripRows } = await pool.query(
+                            `SELECT DISTINCT st.trip_id, st.departure_time
+                             FROM public.stop_time st
+                             JOIN public.trip t ON t.agency_id = st.agency_id AND t.id = st.trip_id
+                             WHERE st.agency_id = $1 AND st.stop_id = $2 AND t.route_id = $3
+                               AND st.departure_time IS NOT NULL`,
+                            [agencyId, t1Stop.stop_id, r2]
+                        );
+
+                        for (const r2TripRow of r2TripRows) {
+                            const r2DepT1Secs = gtfsTimeToSeconds(r2TripRow.departure_time);
+                            if (r2DepT1Secs === null || isNaN(r2DepT1Secs)) continue;
+                            if (r2DepT1Secs < r1ArrT1Secs) continue;
+
+                            const transferWait1 = r2DepT1Secs - r1ArrT1Secs;
+
+                            // Prune early
+                            if (bestSoFar !== undefined &&
+                                walkToBoard + waitForR1 + ride1Time + transferWait1 >= bestSoFar) continue;
+
+                            const r2TripId = r2TripRow.trip_id;
+                            const r2StopTimes = await repo.getTripStopTimes(pool, agencyId, r2TripId);
+                            if (!r2StopTimes.length) continue;
+
+                            // Find T1 in R2's stop times to establish sequence
+                            const r2T1Entry = r2StopTimes.find(st => st.stop_id === t1Stop.stop_id);
+                            if (!r2T1Entry) continue;
+
+                            // Enumerate T2: every stop on R2 beyond T1
+                            for (const t2Stop of r2StopTimes) {
+                                if (t2Stop.stop_sequence <= r2T1Entry.stop_sequence) continue;
+
+                                const r2ArrT2Secs = gtfsTimeToSeconds(t2Stop.arrival_time);
+                                if (r2ArrT2Secs === null || isNaN(r2ArrT2Secs)) continue;
+
+                                const ride2Time = r2ArrT2Secs >= r2DepT1Secs
+                                    ? r2ArrT2Secs - r2DepT1Secs
+                                    : r2ArrT2Secs + 86400 - r2DepT1Secs;
+
+                                // Prune
+                                if (bestSoFar !== undefined &&
+                                    walkToBoard + waitForR1 + ride1Time + transferWait1 + ride2Time >= bestSoFar) continue;
+
+                                // Find R3 candidates: routes serving T2, excluding R2, that also serve stops near dest
+                                const { rows: r3Candidates } = await pool.query(
+                                    `SELECT DISTINCT t.route_id
+                                     FROM public.stop_time st
+                                     JOIN public.trip t ON t.agency_id = st.agency_id AND t.id = st.trip_id
+                                     WHERE st.agency_id = $1 AND st.stop_id = $2 AND t.route_id != $3`,
+                                    [agencyId, t2Stop.stop_id, r2]
+                                );
+
+                                for (const { route_id: r3 } of r3Candidates) {
+                                    // R3 trips departing T2 after R2 arrives at T2
+                                    const { rows: r3TripRows } = await pool.query(
+                                        `SELECT DISTINCT st.trip_id, st.departure_time
+                                         FROM public.stop_time st
+                                         JOIN public.trip t ON t.agency_id = st.agency_id AND t.id = st.trip_id
+                                         WHERE st.agency_id = $1 AND st.stop_id = $2 AND t.route_id = $3
+                                           AND st.departure_time IS NOT NULL`,
+                                        [agencyId, t2Stop.stop_id, r3]
+                                    );
+
+                                    for (const r3TripRow of r3TripRows) {
+                                        const r3DepT2Secs = gtfsTimeToSeconds(r3TripRow.departure_time);
+                                        if (r3DepT2Secs === null || isNaN(r3DepT2Secs)) continue;
+                                        if (r3DepT2Secs < r2ArrT2Secs) continue;
+
+                                        const transferWait2 = r3DepT2Secs - r2ArrT2Secs;
+
+                                        const r3TripId = r3TripRow.trip_id;
+                                        const r3StopTimes = await repo.getTripStopTimes(pool, agencyId, r3TripId);
+                                        if (!r3StopTimes.length) continue;
+
+                                        // Find T2 entry in R3's stop times
+                                        const r3T2Entry = r3StopTimes.find(st => st.stop_id === t2Stop.stop_id);
+                                        if (!r3T2Entry) continue;
+
+                                        // Find alight stops near dest (within prune radius) beyond T2
+                                        const alightCandidates = r3StopTimes.filter(st =>
+                                            st.stop_sequence > r3T2Entry.stop_sequence &&
+                                            nearDestPruneIds.has(st.stop_id)
+                                        );
+
+                                        for (const alight of alightCandidates) {
+                                            const arrSecs = gtfsTimeToSeconds(alight.arrival_time);
+                                            if (arrSecs === null || isNaN(arrSecs)) continue;
+                                            if (!alight.lat || !alight.lon) continue;
+
+                                            const distFromAlight = haversineMeters(alight.lat, alight.lon, dest.lat, dest.lng) * MANHATTAN_FACTOR;
+                                            const walkFromAlight = Math.round(distFromAlight / WALK_SPEED_MS);
+
+                                            const ride3Time = arrSecs >= r3DepT2Secs
+                                                ? arrSecs - r3DepT2Secs
+                                                : arrSecs + 86400 - r3DepT2Secs;
+
+                                            const totalTime = walkToBoard + waitForR1 + ride1Time +
+                                                transferWait1 + ride2Time +
+                                                transferWait2 + ride3Time + walkFromAlight;
+
+                                            // Final prune
+                                            if (bestSoFar !== undefined && totalTime >= bestSoFar) continue;
+
+                                            // Retrieve shape_id for R2 trip from routeStopIndex if available
+                                            const r2IndexEntry = byRoute[r2] ? byRoute[r2].find(e => e.trip_id === r2TripId) : null;
+                                            const r3IndexEntry = byRoute[r3] ? byRoute[r3].find(e => e.trip_id === r3TripId) : null;
+
+                                            results.push({
+                                                totalTime,
+                                                totalWalkTime: walkToBoard + walkFromAlight,
+                                                totalRideTime: ride1Time + ride2Time + ride3Time,
+                                                waitTime: waitForR1 + transferWait1 + transferWait2,
+                                                transfers: 2,
+                                                legs: [
+                                                    {
+                                                        type: 'walk',
+                                                        from: { lat: origin.lat, lng: origin.lng, name: 'Your location' },
+                                                        to: { lat: boardStop.lat, lng: boardStop.lon, name: boardStop.name },
+                                                        distanceMeters: Math.round(distToBoard),
+                                                        durationSeconds: walkToBoard,
+                                                    },
+                                                    {
+                                                        type: 'bus',
+                                                        routeId: r1,
+                                                        tripId: r1TripId,
+                                                        shapeId: board.shape_id,
+                                                        boardStop: { id: board.stop_id, name: boardStop.name, lat: boardStop.lat, lng: boardStop.lon },
+                                                        alightStop: { id: t1Stop.stop_id, name: t1Stop.name, lat: t1Stop.lat, lng: t1Stop.lon },
+                                                        boardTime: board.departure_time,
+                                                        alightTime: t1Stop.arrival_time,
+                                                        boardSequence: board.stop_sequence,
+                                                        alightSequence: t1Stop.stop_sequence,
+                                                    },
+                                                    {
+                                                        type: 'bus',
+                                                        routeId: r2,
+                                                        tripId: r2TripId,
+                                                        shapeId: r2IndexEntry ? r2IndexEntry.shape_id : null,
+                                                        boardStop: { id: t1Stop.stop_id, name: t1Stop.name, lat: t1Stop.lat, lng: t1Stop.lon },
+                                                        alightStop: { id: t2Stop.stop_id, name: t2Stop.name, lat: t2Stop.lat, lng: t2Stop.lon },
+                                                        boardTime: r2TripRow.departure_time,
+                                                        alightTime: t2Stop.arrival_time,
+                                                        boardSequence: r2T1Entry.stop_sequence,
+                                                        alightSequence: t2Stop.stop_sequence,
+                                                    },
+                                                    {
+                                                        type: 'bus',
+                                                        routeId: r3,
+                                                        tripId: r3TripId,
+                                                        shapeId: r3IndexEntry ? r3IndexEntry.shape_id : null,
+                                                        boardStop: { id: t2Stop.stop_id, name: t2Stop.name, lat: t2Stop.lat, lng: t2Stop.lon },
+                                                        alightStop: { id: alight.stop_id, name: alight.name, lat: alight.lat, lng: alight.lon },
+                                                        boardTime: r3TripRow.departure_time,
+                                                        alightTime: alight.arrival_time,
+                                                        boardSequence: r3T2Entry.stop_sequence,
+                                                        alightSequence: alight.stop_sequence,
+                                                    },
+                                                    {
+                                                        type: 'walk',
+                                                        from: { lat: alight.lat, lng: alight.lon, name: alight.name },
+                                                        to: { lat: dest.lat, lng: dest.lng, name: 'Destination' },
+                                                        distanceMeters: Math.round(distFromAlight),
+                                                        durationSeconds: walkFromAlight,
+                                                    },
+                                                ],
+                                            });
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    return results;
+}
+
+module.exports = { haversineMeters, estimateWalkSeconds, gtfsTimeToSeconds, nowAsSeconds, findNearbyStops, findDirectRoutes, findOneTransferRoutes, findTwoTransferRoutes };
