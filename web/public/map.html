@@ -526,6 +526,200 @@
         setDestination(center.lat, center.lng, null);
     });
 
+    /* ── Trip computation and results ── */
+    async function computeTrip() {
+        if (destLat === null || userLat === null) return;
+        const agencyId = agencySelect.value;
+        if (!agencyId) return;
+
+        tripLoading.style.display = '';
+        tripResults.style.display = 'none';
+        document.getElementById('trip-inputs').style.display = 'none';
+        mapAdapter.clearTripPlan();
+
+        try {
+            const res = await fetch('/api/trip-plan/' + agencyId +
+                '?originLat=' + userLat + '&originLng=' + userLng +
+                '&destLat=' + destLat + '&destLng=' + destLng);
+            const data = await res.json();
+            tripLoading.style.display = 'none';
+
+            if (!data.options || !data.options.length) {
+                tripResults.innerHTML = '<div style="padding:12px 0;text-align:center;color:var(--text-muted);font-size:0.8rem;">' +
+                    (data.error || 'No routes found for this trip.') + '</div>';
+                tripResults.style.display = '';
+                return;
+            }
+
+            tripOptions = data.options;
+            selectedTripIdx = 0;
+            renderTripResults();
+            selectTripOption(0);
+        } catch (err) {
+            console.error('Trip plan failed:', err);
+            tripLoading.style.display = 'none';
+            tripResults.innerHTML = '<div style="padding:12px 0;text-align:center;color:var(--text-muted);font-size:0.8rem;">Trip planning failed. Try again.</div>';
+            tripResults.style.display = '';
+        }
+    }
+
+    function formatMinutes(secs) {
+        const m = Math.round(secs / 60);
+        return m < 1 ? '< 1 min' : m + ' min';
+    }
+
+    function renderTripResults() {
+        let html = '<div class="trip-summary-row"><span>📍 My Location → 🏁 ' +
+            (tripDestInput.value.length > 25 ? tripDestInput.value.substring(0, 25) + '…' : tripDestInput.value) +
+            '</span><a id="trip-edit-link">Edit</a></div>';
+
+        tripOptions.forEach(function (opt, idx) {
+            let legsHtml = '';
+            opt.legs.forEach(function (leg, li) {
+                if (li > 0) legsHtml += '<span class="arrow">→</span>';
+                if (leg.type === 'walk') {
+                    legsHtml += '<span class="walk">🚶' + formatMinutes(leg.durationSeconds) + '</span>';
+                } else if (leg.type === 'bus') {
+                    const color = leg.routeColor || '#1558d0';
+                    let name = leg.routeName || leg.routeId;
+                    if (name.length > 12) name = name.substring(0, 12) + '…';
+                    legsHtml += '<span class="trip-leg-badge" style="background:' + color + ';">' + name + '</span>';
+                }
+            });
+
+            let detailHtml = '';
+            opt.legs.forEach(function (leg) {
+                if (leg.type === 'walk') {
+                    detailHtml += 'Walk to <b>' + (leg.to.name || 'next stop') + '</b> (' + leg.distanceMeters + 'm)<br>';
+                } else if (leg.type === 'bus') {
+                    const boardTimeStr = leg.boardTime ? leg.boardTime.substring(0, 5) : '';
+                    detailHtml += 'Board <b>' + (leg.routeName || leg.routeId) + '</b>' +
+                        (boardTimeStr ? ' (~' + boardTimeStr + ')' : '') +
+                        ' · ' + (leg.numStops || '?') + ' stops<br>' +
+                        'Alight at <b>' + (leg.alightStop.name || 'stop') + '</b><br>';
+                }
+            });
+
+            html += '<div class="trip-option' + (idx === selectedTripIdx ? ' selected' : '') + '" data-trip-idx="' + idx + '">' +
+                '<div class="trip-option-header">' +
+                '<div class="trip-option-time">' + formatMinutes(opt.totalTime) + '</div>' +
+                '<div class="trip-option-label">' + (opt.label || '') + '</div>' +
+                '</div>' +
+                '<div class="trip-option-legs">' + legsHtml + '</div>' +
+                '<div class="trip-option-details">' + detailHtml + '</div>' +
+                '</div>';
+        });
+
+        html += '<div class="trip-show-all"><label><input type="checkbox" id="trip-show-all-toggle"> Show all buses on route</label></div>';
+
+        tripResults.innerHTML = html;
+        tripResults.style.display = '';
+
+        tripResults.querySelectorAll('.trip-option').forEach(function (el) {
+            el.addEventListener('click', function () {
+                selectTripOption(parseInt(el.dataset.tripIdx, 10));
+            });
+        });
+
+        const editLink = document.getElementById('trip-edit-link');
+        if (editLink) {
+            editLink.addEventListener('click', function (e) {
+                e.stopPropagation();
+                tripResults.style.display = 'none';
+                document.getElementById('trip-inputs').style.display = '';
+                tripDestInput.focus();
+            });
+        }
+
+        const showAllToggle = document.getElementById('trip-show-all-toggle');
+        if (showAllToggle) {
+            showAllToggle.addEventListener('change', function () {
+                fetchTripBuses(showAllToggle.checked);
+            });
+        }
+    }
+
+    async function selectTripOption(idx) {
+        selectedTripIdx = idx;
+        tripResults.querySelectorAll('.trip-option').forEach(function (el, i) {
+            el.classList.toggle('selected', i === idx);
+        });
+
+        const opt = tripOptions[idx];
+        if (!opt) return;
+
+        const enrichedLegs = [];
+        for (let i = 0; i < opt.legs.length; i++) {
+            const leg = Object.assign({}, opt.legs[i]);
+            if (leg.type === 'walk' && leg.from && leg.to) {
+                const query = leg.from.lat + ',' + leg.from.lng + ':' + leg.to.lat + ',' + leg.to.lng;
+                try {
+                    const walkRes = await fetch('/api/azure-maps/route/directions/json?api-version=1.0&query=' +
+                        encodeURIComponent(query) + '&travelMode=pedestrian&routeType=shortest', {
+                        headers: { 'X-Azure-Maps-Proxy': '1' }
+                    });
+                    const walkData = await walkRes.json();
+                    if (walkData.routes && walkData.routes[0] && walkData.routes[0].legs) {
+                        const pts = [];
+                        walkData.routes[0].legs.forEach(function (wl) {
+                            wl.points.forEach(function (p) { pts.push({ lat: p.latitude, lng: p.longitude }); });
+                        });
+                        leg.walkPath = pts;
+                        const summary = walkData.routes[0].summary;
+                        leg.distanceMeters = summary.lengthInMeters;
+                        leg.durationSeconds = summary.travelTimeInSeconds;
+                    }
+                } catch (e) { console.error('Walk route fetch failed:', e); }
+            } else if (leg.type === 'bus' && leg.tripId) {
+                try {
+                    const shapeRes = await fetch('/api/shape/' + agencySelect.value + '/' + leg.tripId);
+                    const shapeData = await shapeRes.json();
+                    if (shapeData.rows && shapeData.rows.length) {
+                        const sorted = shapeData.rows
+                            .sort(function (a, b) { return a.pt_sequence - b.pt_sequence; })
+                            .map(function (p) { return { lat: p.pt_lat, lon: p.pt_lon }; });
+                        leg.shapePath = sorted;
+                    }
+                } catch (e) { console.error('Shape fetch failed:', e); }
+            }
+            enrichedLegs.push(leg);
+        }
+
+        mapAdapter.drawTripPlan(enrichedLegs);
+        fetchTripBuses(document.getElementById('trip-show-all-toggle')?.checked || false);
+    }
+
+    async function fetchTripBuses(showAll) {
+        const opt = tripOptions[selectedTripIdx];
+        if (!opt) return;
+
+        const busLegs = opt.legs.filter(function (l) { return l.type === 'bus'; });
+        const routeIds = busLegs.map(function (l) { return l.routeId; });
+        const pinnedIds = busLegs.map(function (l) { return l.vehicleId; }).filter(Boolean);
+        const agencyId = agencySelect.value;
+
+        const allVehicles = [];
+        for (let ri = 0; ri < routeIds.length; ri++) {
+            try {
+                const res = await fetch('/live/' + agencyId + '/' + routeIds[ri]);
+                const vehicles = await res.json();
+                if (showAll) {
+                    allVehicles.push(...vehicles);
+                } else {
+                    const legVehicleId = busLegs[ri].vehicleId;
+                    if (legVehicleId) {
+                        const found = vehicles.find(function (v) { return v.vehicle_id === legVehicleId; });
+                        if (found) allVehicles.push(found);
+                    }
+                }
+            } catch (e) { console.error('Live fetch for trip bus failed:', e); }
+        }
+
+        if (allVehicles.length) {
+            mapAdapter.showTripBuses(allVehicles, pinnedIds);
+        }
+    }
+
     /* ── Fetch live vehicles for current selection ── */
     function fetchLive() {
         const agencyId = agencySelect.value;
