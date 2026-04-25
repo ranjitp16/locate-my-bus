@@ -79,6 +79,7 @@
             <div class="trip-dest-row">
                 <span style="font-size:0.85rem;">🏁</span>
                 <input type="text" id="trip-dest-input" placeholder="Where to? (address or drop pin)" autocomplete="off">
+                <button id="trip-dest-search-btn" aria-label="Search destination">🔍</button>
                 <button id="trip-dest-pin-btn" aria-label="Drop destination pin">📌</button>
             </div>
         </div>
@@ -435,8 +436,13 @@
         tripLoading.style.display = 'none';
         tripDestInput.value = '';
         tripInputsEl.style.display = '';
+        // Stop polling and clear existing map overlays
+        clearInterval(pollTimer);
+        clearInterval(countdownTimer);
+        pollTimer = null;
         mapAdapter.clearRoute();
         mapAdapter.clearStopMarkers();
+        mapAdapter.updateBusMarkers([], null, null, null);
     }
 
     function exitTripMode() {
@@ -447,12 +453,13 @@
         geocodeDropdown.classList.remove('open');
         mapAdapter.clearDestinationPin();
         mapAdapter.clearTripPlan();
+        mapAdapter.updateBusMarkers([], null, null, null);
         destLat = null;
         destLng = null;
         tripOptions = null;
-        // Restore normal polling
+        // Restart polling if it wasn't manually paused before entering trip mode
         if (!pollingPaused && agencySelect.value && routeSelect.value) {
-            fetchLive();
+            startPolling();
         }
     }
 
@@ -464,13 +471,21 @@
     tripCloseBtn.addEventListener('click', exitTripMode);
 
     /* ── Geocoding and destination ── */
-    tripDestInput.addEventListener('keydown', function (e) {
-        if (e.key !== 'Enter') return;
-        e.preventDefault();
+    const tripDestSearchBtn = document.getElementById('trip-dest-search-btn');
+
+    function submitDestSearch() {
         const query = tripDestInput.value.trim();
         if (!query) return;
         geocodeAddress(query);
+    }
+
+    tripDestInput.addEventListener('keydown', function (e) {
+        if (e.key !== 'Enter') return;
+        e.preventDefault();
+        submitDestSearch();
     });
+
+    tripDestSearchBtn.addEventListener('click', submitDestSearch);
 
     async function geocodeAddress(query) {
         try {

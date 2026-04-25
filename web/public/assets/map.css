@@ -414,6 +414,7 @@ body { overflow: hidden; }
     border-color: var(--accent);
 }
 
+#trip-dest-search-btn,
 #trip-dest-pin-btn {
     width: 32px;
     height: 32px;
@@ -425,7 +426,9 @@ body { overflow: hidden; }
     justify-content: center;
     font-size: 0.85rem;
     cursor: pointer;
+    flex-shrink: 0;
 }
+#trip-dest-search-btn:hover,
 #trip-dest-pin-btn:hover { border-color: var(--accent); }
 
 /* ── Geocode dropdown ── */
