@@ -163,9 +163,21 @@ async function findOneTransferRoutes(pool, agencyId, origin, dest, stopsNearA, s
         if (entries.some(e => nearBIds.has(e.stop_id))) r2Routes.push(routeId);
     }
 
+    // Pre-group trips for every route so we don't rebuild inside the R1×R2 loop
+    const tripsByRoute = {};
+    for (const routeId of Object.keys(byRoute)) {
+        const byTrip = {};
+        for (const e of byRoute[routeId]) {
+            if (!byTrip[e.trip_id]) byTrip[e.trip_id] = [];
+            byTrip[e.trip_id].push(e);
+        }
+        tripsByRoute[routeId] = byTrip;
+    }
+
     const results = [];
 
     for (const r1 of r1Routes) {
+        const r1ByTrip = tripsByRoute[r1];
         for (const r2 of r2Routes) {
             if (r1 === r2) continue;
 
@@ -173,17 +185,7 @@ async function findOneTransferRoutes(pool, agencyId, origin, dest, stopsNearA, s
             const transferStops = await repo.getTransferStops(pool, agencyId, r1, r2);
             if (!transferStops.length) continue;
 
-            // Group R1 and R2 trips
-            const r1ByTrip = {};
-            for (const e of byRoute[r1]) {
-                if (!r1ByTrip[e.trip_id]) r1ByTrip[e.trip_id] = [];
-                r1ByTrip[e.trip_id].push(e);
-            }
-            const r2ByTrip = {};
-            for (const e of byRoute[r2]) {
-                if (!r2ByTrip[e.trip_id]) r2ByTrip[e.trip_id] = [];
-                r2ByTrip[e.trip_id].push(e);
-            }
+            const r2ByTrip = tripsByRoute[r2];
 
             for (const xferStop of transferStops) {
                 // Find R1 trips that board near A and alight at this transfer stop
@@ -303,11 +305,13 @@ async function findOneTransferRoutes(pool, agencyId, origin, dest, stopsNearA, s
 }
 
 async function findTwoTransferRoutes(pool, agencyId, origin, dest, stopsNearA, stopsNearB, routeStopIndex, nowSecs, bestSoFar) {
+    // stopsNearB unused here; 2-xfer uses TWO_XFER_PRUNE_RADIUS stop set instead
     const nearAIds = new Set(stopsNearA.map(s => s.id));
 
-    // Stops near dest within the tighter prune radius (used to check R3 relevance)
+    // Stops near dest within the tighter prune radius (used to pre-filter R3 candidates in SQL)
     const stopsNearDestPrune = await repo.getStopsNearPoint(pool, agencyId, dest.lat, dest.lng, TWO_XFER_PRUNE_RADIUS);
     const nearDestPruneIds = new Set(stopsNearDestPrune.map(s => s.id));
+    const nearDestPruneArr = [...nearDestPruneIds]; // pre-built array for $4 param in R3 query
 
     // Group routeStopIndex by route
     const byRoute = {};
@@ -422,14 +426,23 @@ async function findTwoTransferRoutes(pool, agencyId, origin, dest, stopsNearA, s
                                 if (bestSoFar !== undefined &&
                                     walkToBoard + waitForR1 + ride1Time + transferWait1 + ride2Time >= bestSoFar) continue;
 
-                                // Find R3 candidates: routes serving T2, excluding R2, that also serve stops near dest
-                                const { rows: r3Candidates } = await pool.query(
-                                    `SELECT DISTINCT t.route_id
-                                     FROM public.stop_time st
-                                     JOIN public.trip t ON t.agency_id = st.agency_id AND t.id = st.trip_id
-                                     WHERE st.agency_id = $1 AND st.stop_id = $2 AND t.route_id != $3`,
-                                    [agencyId, t2Stop.stop_id, r2]
-                                );
+                                // Find R3 candidates: routes serving T2 (excl. R2) that also serve at least
+                                // one stop within TWO_XFER_PRUNE_RADIUS of dest — avoids fetching dead trips
+                                const { rows: r3Candidates } = nearDestPruneArr.length
+                                    ? await pool.query(
+                                        `SELECT DISTINCT t.route_id
+                                         FROM public.stop_time st
+                                         JOIN public.trip t ON t.agency_id = st.agency_id AND t.id = st.trip_id
+                                         WHERE st.agency_id = $1 AND st.stop_id = $2 AND t.route_id != $3
+                                           AND EXISTS (
+                                               SELECT 1 FROM public.stop_time st2
+                                               JOIN public.trip t2 ON t2.agency_id = st2.agency_id AND t2.id = st2.trip_id
+                                               WHERE st2.agency_id = $1 AND t2.route_id = t.route_id
+                                                 AND st2.stop_id = ANY($4)
+                                           )`,
+                                        [agencyId, t2Stop.stop_id, r2, nearDestPruneArr]
+                                    )
+                                    : { rows: [] };
 
                                 for (const { route_id: r3 } of r3Candidates) {
                                     // R3 trips departing T2 after R2 arrives at T2
