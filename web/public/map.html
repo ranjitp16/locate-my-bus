@@ -597,9 +597,7 @@
                     detailHtml += 'Walk to <b>' + (leg.to.name || 'next stop') + '</b> (' + leg.distanceMeters + 'm)<br>';
                 } else if (leg.type === 'bus') {
                     const color = leg.routeColor || '#1558d0';
-                    let name = leg.routeName || leg.routeId;
-                    if (name.length > 12) name = name.substring(0, 12) + '…';
-                    legsHtml += '<span class="trip-leg-badge" style="background:' + color + ';">' + name + '</span>';
+                    legsHtml += '<span class="trip-leg-badge" style="background:' + color + ';">Rt ' + leg.routeId + '</span>';
                     const boardTimeStr = leg.boardTime ? leg.boardTime.substring(0, 5) : '';
                     detailHtml += 'Board <b>' + (leg.routeName || leg.routeId) + '</b>' +
                         (boardTimeStr ? ' (~' + boardTimeStr + ')' : '') +
