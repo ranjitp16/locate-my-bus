@@ -17,7 +17,7 @@ async function getStopsNearPoint(pool, agencyId, lat, lng, radiusMeters) {
 }
 
 async function getRouteStopIndex(pool, agencyId, stopIds) {
-    if (!stopIds.length) return [];
+    if (!Array.isArray(stopIds) || !stopIds.length) return [];
     const { rows } = await pool.query(
         `SELECT t.route_id, t.id AS trip_id, t.shape_id,
                 st.stop_id, st.arrival_time, st.departure_time,
