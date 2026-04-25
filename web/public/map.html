@@ -40,6 +40,7 @@
         <button id="drop-pin-btn" data-tip="Drop pin" aria-label="Drop pin">&#128205;</button>
         <button id="my-location-btn" data-tip="My location" aria-label="My location"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="8"/><line x1="12" y1="2" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="2" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22" y2="12"/></svg></button>
         <button id="stop-tracking-btn" data-tip="Stop tracking" aria-label="Stop tracking" style="display:none;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="8"/><line x1="12" y1="2" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="2" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22" y2="12"/><line x1="4" y1="4" x2="20" y2="20" stroke-width="2.5"/></svg></button>
+        <button id="trip-btn" data-tip="Plan trip" aria-label="Plan trip" style="display:none;">🗺️</button>
     </div>
     <div id="controls">
         <div id="controls-header">
@@ -63,6 +64,30 @@
             <span id="detail-url"></span>
             <span id="detail-fare"></span>
         </div>
+    </div>
+    <div id="trip-sheet">
+        <div id="trip-sheet-handle"></div>
+        <div id="trip-sheet-title">
+            <span>Plan Trip</span>
+            <button id="trip-close-btn" style="background:none;border:none;font-size:1.1rem;cursor:pointer;color:var(--text-muted);">✕</button>
+        </div>
+        <div id="trip-inputs">
+            <div class="trip-origin-row">
+                <span style="font-size:0.85rem;">📍</span>
+                <div class="trip-origin-pill">My Location</div>
+            </div>
+            <div class="trip-dest-row">
+                <span style="font-size:0.85rem;">🏁</span>
+                <input type="text" id="trip-dest-input" placeholder="Where to? (address or drop pin)" autocomplete="off">
+                <button id="trip-dest-pin-btn" aria-label="Drop destination pin">📌</button>
+            </div>
+        </div>
+        <div id="geocode-dropdown"></div>
+        <div id="trip-loading" style="display:none;">
+            <div class="spinner"></div>
+            <div style="margin-top:6px;">Finding best routes...</div>
+        </div>
+        <div id="trip-results" style="display:none;"></div>
     </div>
 </div>
 
@@ -288,6 +313,7 @@
         dropPinBtn.classList.remove('active');
         myLocationBtn.classList.remove('active');
         stopTrackingBtn.style.display = 'none';
+        showTripBtn();
     }
 
     function onLocationUpdate(pos) {
@@ -304,6 +330,7 @@
         if (firstTime) {
             mapAdapter.setView(lat, lng, 13, true);
         }
+        showTripBtn();
     }
 
     function showLocationDenied() {
@@ -361,6 +388,7 @@
             if (lastStops.length) mapAdapter.updateStopMarkers(lastStops, userLat, userLng);
         });
         if (lastStops.length) mapAdapter.updateStopMarkers(lastStops, userLat, userLng);
+        showTripBtn();
     });
 
     myLocationBtn.addEventListener('click', () => {
@@ -373,6 +401,66 @@
     });
 
     startLocation();
+
+    /* ── Trip planning mode ── */
+    let tripMode = false;
+    let destLat = null;
+    let destLng = null;
+    let tripOptions = null;
+    let selectedTripIdx = 0;
+    const tripBtn = document.getElementById('trip-btn');
+    const tripSheet = document.getElementById('trip-sheet');
+    const tripCloseBtn = document.getElementById('trip-close-btn');
+    const tripDestInput = document.getElementById('trip-dest-input');
+    const tripDestPinBtn = document.getElementById('trip-dest-pin-btn');
+    const tripLoading = document.getElementById('trip-loading');
+    const tripResults = document.getElementById('trip-results');
+    const geocodeDropdown = document.getElementById('geocode-dropdown');
+    const controlsEl = document.getElementById('controls');
+
+    function showTripBtn() {
+        tripBtn.style.display = (userLat !== null && agencySelect.value) ? '' : 'none';
+    }
+
+    function enterTripMode() {
+        tripMode = true;
+        tripBtn.classList.add('active');
+        controlsEl.style.display = 'none';
+        tripSheet.classList.add('open');
+        destLat = null;
+        destLng = null;
+        tripOptions = null;
+        tripResults.style.display = 'none';
+        tripLoading.style.display = 'none';
+        tripDestInput.value = '';
+        document.getElementById('trip-inputs').style.display = '';
+        mapAdapter.clearRoute();
+        mapAdapter.clearStopMarkers();
+    }
+
+    function exitTripMode() {
+        tripMode = false;
+        tripBtn.classList.remove('active');
+        controlsEl.style.display = '';
+        tripSheet.classList.remove('open');
+        geocodeDropdown.classList.remove('open');
+        mapAdapter.clearDestinationPin();
+        mapAdapter.clearTripPlan();
+        destLat = null;
+        destLng = null;
+        tripOptions = null;
+        // Restore normal polling
+        if (!pollingPaused && agencySelect.value && routeSelect.value) {
+            fetchLive();
+        }
+    }
+
+    tripBtn.addEventListener('click', function () {
+        if (tripMode) exitTripMode();
+        else enterTripMode();
+    });
+
+    tripCloseBtn.addEventListener('click', exitTripMode);
 
     /* ── Fetch live vehicles for current selection ── */
     function fetchLive() {
@@ -554,6 +642,7 @@
             agencySelect.disabled = false;
             updateDetails(agencySelect.value);
             loadRoutes(agencySelect.value, /* restoreRoute */ true);
+            showTripBtn();
         })
         .catch(err => {
             console.error('Agencies fetch failed:', err);
