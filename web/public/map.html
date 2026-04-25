@@ -415,6 +415,7 @@
     const tripDestPinBtn = document.getElementById('trip-dest-pin-btn');
     const tripLoading = document.getElementById('trip-loading');
     const tripResults = document.getElementById('trip-results');
+    const tripInputsEl = document.getElementById('trip-inputs');
     const geocodeDropdown = document.getElementById('geocode-dropdown');
     const controlsEl = document.getElementById('controls');
 
@@ -433,7 +434,7 @@
         tripResults.style.display = 'none';
         tripLoading.style.display = 'none';
         tripDestInput.value = '';
-        document.getElementById('trip-inputs').style.display = '';
+        tripInputsEl.style.display = '';
         mapAdapter.clearRoute();
         mapAdapter.clearStopMarkers();
     }
@@ -534,7 +535,7 @@
 
         tripLoading.style.display = '';
         tripResults.style.display = 'none';
-        document.getElementById('trip-inputs').style.display = 'none';
+        tripInputsEl.style.display = 'none';
         mapAdapter.clearTripPlan();
 
         try {
@@ -575,23 +576,17 @@
 
         tripOptions.forEach(function (opt, idx) {
             let legsHtml = '';
+            let detailHtml = '';
             opt.legs.forEach(function (leg, li) {
                 if (li > 0) legsHtml += '<span class="arrow">→</span>';
                 if (leg.type === 'walk') {
                     legsHtml += '<span class="walk">🚶' + formatMinutes(leg.durationSeconds) + '</span>';
+                    detailHtml += 'Walk to <b>' + (leg.to.name || 'next stop') + '</b> (' + leg.distanceMeters + 'm)<br>';
                 } else if (leg.type === 'bus') {
                     const color = leg.routeColor || '#1558d0';
                     let name = leg.routeName || leg.routeId;
                     if (name.length > 12) name = name.substring(0, 12) + '…';
                     legsHtml += '<span class="trip-leg-badge" style="background:' + color + ';">' + name + '</span>';
-                }
-            });
-
-            let detailHtml = '';
-            opt.legs.forEach(function (leg) {
-                if (leg.type === 'walk') {
-                    detailHtml += 'Walk to <b>' + (leg.to.name || 'next stop') + '</b> (' + leg.distanceMeters + 'm)<br>';
-                } else if (leg.type === 'bus') {
                     const boardTimeStr = leg.boardTime ? leg.boardTime.substring(0, 5) : '';
                     detailHtml += 'Board <b>' + (leg.routeName || leg.routeId) + '</b>' +
                         (boardTimeStr ? ' (~' + boardTimeStr + ')' : '') +
@@ -626,7 +621,7 @@
             editLink.addEventListener('click', function (e) {
                 e.stopPropagation();
                 tripResults.style.display = 'none';
-                document.getElementById('trip-inputs').style.display = '';
+                tripInputsEl.style.display = '';
                 tripDestInput.focus();
             });
         }
@@ -648,9 +643,8 @@
         const opt = tripOptions[idx];
         if (!opt) return;
 
-        const enrichedLegs = [];
-        for (let i = 0; i < opt.legs.length; i++) {
-            const leg = Object.assign({}, opt.legs[i]);
+        const enrichedLegs = await Promise.all(opt.legs.map(async function (rawLeg) {
+            const leg = Object.assign({}, rawLeg);
             if (leg.type === 'walk' && leg.from && leg.to) {
                 const query = leg.from.lat + ',' + leg.from.lng + ':' + leg.to.lat + ',' + leg.to.lng;
                 try {
@@ -675,15 +669,14 @@
                     const shapeRes = await fetch('/api/shape/' + agencySelect.value + '/' + leg.tripId);
                     const shapeData = await shapeRes.json();
                     if (shapeData.rows && shapeData.rows.length) {
-                        const sorted = shapeData.rows
+                        leg.shapePath = shapeData.rows
                             .sort(function (a, b) { return a.pt_sequence - b.pt_sequence; })
                             .map(function (p) { return { lat: p.pt_lat, lon: p.pt_lon }; });
-                        leg.shapePath = sorted;
                     }
                 } catch (e) { console.error('Shape fetch failed:', e); }
             }
-            enrichedLegs.push(leg);
-        }
+            return leg;
+        }));
 
         mapAdapter.drawTripPlan(enrichedLegs);
         fetchTripBuses(document.getElementById('trip-show-all-toggle')?.checked || false);
@@ -698,22 +691,20 @@
         const pinnedIds = busLegs.map(function (l) { return l.vehicleId; }).filter(Boolean);
         const agencyId = agencySelect.value;
 
-        const allVehicles = [];
-        for (let ri = 0; ri < routeIds.length; ri++) {
+        const results = await Promise.all(routeIds.map(async function (routeId, ri) {
             try {
-                const res = await fetch('/live/' + agencyId + '/' + routeIds[ri]);
+                const res = await fetch('/live/' + agencyId + '/' + routeId);
                 const vehicles = await res.json();
-                if (showAll) {
-                    allVehicles.push(...vehicles);
-                } else {
-                    const legVehicleId = busLegs[ri].vehicleId;
-                    if (legVehicleId) {
-                        const found = vehicles.find(function (v) { return v.vehicle_id === legVehicleId; });
-                        if (found) allVehicles.push(found);
-                    }
+                if (showAll) return vehicles;
+                const legVehicleId = busLegs[ri].vehicleId;
+                if (legVehicleId) {
+                    const found = vehicles.find(function (v) { return v.vehicle_id === legVehicleId; });
+                    if (found) return [found];
                 }
             } catch (e) { console.error('Live fetch for trip bus failed:', e); }
-        }
+            return [];
+        }));
+        const allVehicles = results.flat();
 
         if (allVehicles.length) {
             mapAdapter.showTripBuses(allVehicles, pinnedIds);
