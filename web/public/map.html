@@ -597,7 +597,7 @@
                     detailHtml += 'Walk to <b>' + (leg.to.name || 'next stop') + '</b> (' + leg.distanceMeters + 'm)<br>';
                 } else if (leg.type === 'bus') {
                     const color = leg.routeColor || '#1558d0';
-                    legsHtml += '<span class="trip-leg-badge" style="background:' + color + ';">Rt ' + leg.routeId + '</span>';
+                    legsHtml += '<span class="trip-leg-badge" style="background:' + color + ';">' + leg.routeId + '</span>';
                     const boardTimeStr = leg.boardTime ? leg.boardTime.substring(0, 5) : '';
                     detailHtml += 'Board <b>' + (leg.routeName || leg.routeId) + '</b>' +
                         (boardTimeStr ? ' (~' + boardTimeStr + ')' : '') +
@@ -680,9 +680,22 @@
                     const shapeRes = await fetch('/api/shape/' + agencySelect.value + '/' + leg.tripId);
                     const shapeData = await shapeRes.json();
                     if (shapeData.rows && shapeData.rows.length) {
-                        leg.shapePath = shapeData.rows
+                        const sorted = shapeData.rows
                             .sort(function (a, b) { return a.pt_sequence - b.pt_sequence; })
                             .map(function (p) { return { lat: p.pt_lat, lon: p.pt_lon }; });
+                        // Trim shape to just the segment between board and alight stops
+                        const boardLat = leg.boardStop.lat, boardLng = leg.boardStop.lng;
+                        const alightLat = leg.alightStop.lat, alightLng = leg.alightStop.lng;
+                        let boardIdx = 0, alightIdx = sorted.length - 1;
+                        let minBoardDist = Infinity, minAlightDist = Infinity;
+                        for (let si = 0; si < sorted.length; si++) {
+                            const dBoard = haversineMeters(sorted[si].lat, sorted[si].lon, boardLat, boardLng);
+                            if (dBoard < minBoardDist) { minBoardDist = dBoard; boardIdx = si; }
+                            const dAlight = haversineMeters(sorted[si].lat, sorted[si].lon, alightLat, alightLng);
+                            if (dAlight < minAlightDist) { minAlightDist = dAlight; alightIdx = si; }
+                        }
+                        if (boardIdx > alightIdx) { const tmp = boardIdx; boardIdx = alightIdx; alightIdx = tmp; }
+                        leg.shapePath = sorted.slice(boardIdx, alightIdx + 1);
                     }
                 } catch (e) { console.error('Shape fetch failed:', e); }
             }
