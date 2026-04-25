@@ -572,4 +572,95 @@ async function findTwoTransferRoutes(pool, agencyId, origin, dest, stopsNearA, s
     return results;
 }
 
-module.exports = { haversineMeters, estimateWalkSeconds, gtfsTimeToSeconds, nowAsSeconds, findNearbyStops, findDirectRoutes, findOneTransferRoutes, findTwoTransferRoutes };
+async function planTrip(pool, agencyId, originLat, originLng, destLat, destLng) {
+    // Step 1: Get agency timezone
+    const { rows: agencyRows } = await pool.query(
+        'SELECT timezone FROM public.agency WHERE id = $1', [agencyId]
+    );
+    if (!agencyRows.length) throw new Error('Agency not found');
+    const timezone = agencyRows[0].timezone || 'America/Halifax';
+    const nowSecs = nowAsSeconds(timezone);
+
+    const origin = { lat: originLat, lng: originLng };
+    const dest = { lat: destLat, lng: destLng };
+
+    // Step 2: Find nearby stops
+    const stopsNearA = await findNearbyStops(pool, agencyId, origin.lat, origin.lng);
+    const stopsNearB = await findNearbyStops(pool, agencyId, dest.lat, dest.lng);
+
+    if (!stopsNearA.length || !stopsNearB.length) {
+        return { options: [], error: 'No transit stops found near origin or destination' };
+    }
+
+    // Step 3: Build route-stop index
+    const allStopIds = [...new Set([...stopsNearA.map(s => s.id), ...stopsNearB.map(s => s.id)])];
+    const routeStopIndex = await repo.getRouteStopIndex(pool, agencyId, allStopIds);
+
+    // Step 4: Run searches
+    const direct = await findDirectRoutes(pool, agencyId, origin, dest, stopsNearA, stopsNearB, routeStopIndex, nowSecs);
+    const oneXfer = await findOneTransferRoutes(pool, agencyId, origin, dest, stopsNearA, stopsNearB, routeStopIndex, nowSecs);
+
+    let allResults = [...direct, ...oneXfer];
+    const bestSoFar = allResults.length ? Math.min(...allResults.map(r => r.totalTime)) : Infinity;
+
+    const twoXfer = await findTwoTransferRoutes(pool, agencyId, origin, dest, stopsNearA, stopsNearB, routeStopIndex, nowSecs, bestSoFar);
+    allResults = [...allResults, ...twoXfer];
+
+    if (!allResults.length) {
+        return { options: [], error: 'No routes found for this trip' };
+    }
+
+    // Step 5: Sort, deduplicate, take top 3
+    allResults.sort((a, b) => a.totalTime - b.totalTime);
+
+    const seen = new Set();
+    const unique = [];
+    for (const r of allResults) {
+        const key = r.legs.filter(l => l.type === 'bus').map(l => l.routeId + ':' + l.tripId).join('|');
+        if (!seen.has(key)) {
+            seen.add(key);
+            unique.push(r);
+        }
+    }
+
+    const top3 = unique.slice(0, 3);
+
+    // Step 6: Assign labels
+    if (top3.length > 0) top3[0].label = 'Best';
+    for (let i = 1; i < top3.length; i++) {
+        const opt = top3[i];
+        if (opt.transfers < top3[0].transfers) opt.label = 'Fewer transfers';
+        else if (opt.transfers === 0 && top3[0].transfers > 0) opt.label = 'Direct route';
+        else if (opt.totalWalkTime < top3[0].totalWalkTime) opt.label = 'Less walking';
+        else if (opt.totalWalkTime > top3[0].totalWalkTime) opt.label = 'More walking';
+        else opt.label = 'Alternative';
+    }
+
+    // Step 7: Enrich bus legs with route info, stop count, and live vehicle
+    for (const opt of top3) {
+        for (const leg of opt.legs) {
+            if (leg.type !== 'bus') continue;
+
+            const routeInfo = await repo.getRouteInfo(pool, agencyId, leg.routeId);
+            if (routeInfo) {
+                leg.routeName = routeInfo.long_name || routeInfo.short_name || leg.routeId;
+                leg.routeColor = routeInfo.color ? '#' + routeInfo.color.replace(/^#/, '') : null;
+            }
+
+            const numStopsResult = await pool.query(
+                `SELECT COUNT(*)::int AS cnt FROM public.stop_time
+                 WHERE agency_id = $1 AND trip_id = $2
+                   AND stop_sequence::int >= $3 AND stop_sequence::int <= $4`,
+                [agencyId, leg.tripId, leg.boardSequence, leg.alightSequence]
+            );
+            leg.numStops = numStopsResult.rows[0]?.cnt || 0;
+
+            const live = await repo.getLiveVehicle(pool, agencyId, leg.routeId, leg.tripId);
+            leg.vehicleId = live?.vehicle_id || null;
+        }
+    }
+
+    return { options: top3 };
+}
+
+module.exports = { haversineMeters, estimateWalkSeconds, gtfsTimeToSeconds, nowAsSeconds, findNearbyStops, findDirectRoutes, findOneTransferRoutes, findTwoTransferRoutes, planTrip };
