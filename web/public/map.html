@@ -453,7 +453,6 @@
         geocodeDropdown.classList.remove('open');
         mapAdapter.clearDestinationPin();
         mapAdapter.clearTripPlan();
-        mapAdapter.updateBusMarkers([], null, null, null);
         destLat = null;
         destLng = null;
         tripOptions = null;
@@ -489,7 +488,7 @@
 
     async function geocodeAddress(query) {
         try {
-            const res = await fetch('/api/azure-maps/search/address/json?api-version=1.0&query=' + encodeURIComponent(query) + '&limit=5&typeahead=true', {
+            const res = await fetch('/api/azure-maps/search/address/json?api-version=1.0&query=' + encodeURIComponent(query) + '&limit=5', {
                 headers: { 'X-Azure-Maps-Proxy': '1' }
             });
             const data = await res.json();
