@@ -12,6 +12,7 @@
     // Keyed by vehicle_id — reused across polls so position can be animated
     let _busMarkerMap = {}; // { [vehicleId]: { marker, popup } }
     let _locMarker    = null; // atlas.HtmlMarker — user location dot
+    let _locDragHandler = null; // stored dragend handler for proper removal
 
     // One-time event callbacks (registered by map.html once on page load)
     let _markerClickFn      = null;
@@ -44,6 +45,17 @@
     function _whenReady(fn) {
         if (_ready) fn();
         else _queue.push(fn);
+    }
+
+    function _clearLocMarker() {
+        if (_locMarker) {
+            if (_locDragHandler) {
+                _map.events.remove('dragend', _locMarker, _locDragHandler);
+                _locDragHandler = null;
+            }
+            _map.markers.remove(_locMarker);
+            _locMarker = null;
+        }
     }
 
     // ── Helpers ────────────────────────────────────────────────────────────
@@ -561,18 +573,14 @@
 
         clearUserLocation: function () {
             _whenReady(function () {
-                if (_locMarker) { _map.markers.remove(_locMarker); _locMarker = null; }
+                _clearLocMarker();
                 if (_locSource) _locSource.clear();
             });
         },
 
         dropLocationPin: function (lat, lng, onDragEnd) {
             _whenReady(function () {
-                if (_locMarker) {
-                    _map.events.remove('dragend', _locMarker);
-                    _map.markers.remove(_locMarker);
-                    _locMarker = null;
-                }
+                _clearLocMarker();
                 if (_locSource) _locSource.clear();
 
                 _locMarker = new atlas.HtmlMarker({
@@ -583,10 +591,11 @@
                 });
                 _map.markers.add(_locMarker);
 
-                _map.events.add('dragend', _locMarker, function () {
+                _locDragHandler = function () {
                     var pos = _locMarker.getOptions().position;
                     if (onDragEnd) onDragEnd(pos[1], pos[0]);
-                });
+                };
+                _map.events.add('dragend', _locMarker, _locDragHandler);
             });
         },
 

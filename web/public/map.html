@@ -37,9 +37,9 @@
 
 <div id="map">
     <div id="map-left-controls">
-        <button id="drop-pin-btn" data-tip="Drop pin">&#128205;</button>
-        <button id="my-location-btn" data-tip="My location"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="8"/><line x1="12" y1="2" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="2" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22" y2="12"/></svg></button>
-        <button id="stop-tracking-btn" data-tip="Stop tracking" style="display:none;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="8"/><line x1="12" y1="2" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="2" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22" y2="12"/><line x1="4" y1="4" x2="20" y2="20" stroke-width="2.5"/></svg></button>
+        <button id="drop-pin-btn" data-tip="Drop pin" aria-label="Drop pin">&#128205;</button>
+        <button id="my-location-btn" data-tip="My location" aria-label="My location"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="8"/><line x1="12" y1="2" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="2" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22" y2="12"/></svg></button>
+        <button id="stop-tracking-btn" data-tip="Stop tracking" aria-label="Stop tracking" style="display:none;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="8"/><line x1="12" y1="2" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="2" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22" y2="12"/><line x1="4" y1="4" x2="20" y2="20" stroke-width="2.5"/></svg></button>
     </div>
     <div id="controls">
         <div id="controls-header">
@@ -306,9 +306,20 @@
         }
     }
 
+    function showLocationDenied() {
+        const existing = document.getElementById('loc-denied-msg');
+        if (existing) existing.remove();
+        const msg = document.createElement('div');
+        msg.id = 'loc-denied-msg';
+        msg.textContent = 'Location access denied. Enable it in browser settings.';
+        document.getElementById('map').appendChild(msg);
+        setTimeout(function () { msg.remove(); }, 5000);
+    }
+
     function onLocationError(err) {
         if (err.code === err.PERMISSION_DENIED) {
             stopLocation();
+            showLocationDenied();
         } else if (err.code === err.TIMEOUT) {
             navigator.geolocation.clearWatch(locationWatchId);
             locationWatchId = navigator.geolocation.watchPosition(
@@ -349,6 +360,7 @@
             userLng = lng;
             if (lastStops.length) mapAdapter.updateStopMarkers(lastStops, userLat, userLng);
         });
+        if (lastStops.length) mapAdapter.updateStopMarkers(lastStops, userLat, userLng);
     });
 
     myLocationBtn.addEventListener('click', () => {
