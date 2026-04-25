@@ -47,6 +47,7 @@ async function findNearbyStops(pool, agencyId, lat, lng) {
     return stops;
 }
 
+// pool/agencyId accepted for calling-convention consistency with Tasks 3/4 (transfer search makes DB calls)
 async function findDirectRoutes(pool, agencyId, origin, dest, stopsNearA, stopsNearB, routeStopIndex, nowSecs) {
     const nearAIds = new Set(stopsNearA.map(s => s.id));
     const nearBIds = new Set(stopsNearB.map(s => s.id));
@@ -77,21 +78,24 @@ async function findDirectRoutes(pool, agencyId, origin, dest, stopsNearA, stopsN
 
             for (const board of boardCandidates) {
                 const depSecs = gtfsTimeToSeconds(board.departure_time);
-                if (depSecs === null || depSecs < nowSecs) continue;
+                if (depSecs === null || isNaN(depSecs) || depSecs < nowSecs) continue;
 
                 for (const alight of alightCandidates) {
                     if (alight.stop_sequence <= board.stop_sequence) continue;
 
                     const arrSecs = gtfsTimeToSeconds(alight.arrival_time);
-                    if (arrSecs === null) continue;
+                    if (arrSecs === null || isNaN(arrSecs)) continue;
 
-                    // DB rows have lon; output objects use lng per spec
+                    // DB rows use .lon; output objects use .lng key per API spec
                     const boardStop = stopsNearA.find(s => s.id === board.stop_id);
                     const alightStop = stopsNearB.find(s => s.id === alight.stop_id);
+                    // Guard: stop may be missing coords (filtered out of nearby query)
+                    if (!boardStop || !alightStop) continue;
 
                     const walkToBoard = estimateWalkSeconds(origin.lat, origin.lng, boardStop.lat, boardStop.lon);
                     const waitTime = Math.max(0, depSecs - nowSecs - walkToBoard);
-                    const rideTime = arrSecs - depSecs;
+                    // Handle overnight trips where arr < dep in seconds (GTFS >24h not always used)
+                    const rideTime = arrSecs >= depSecs ? arrSecs - depSecs : arrSecs + 86400 - depSecs;
                     const walkFromAlight = estimateWalkSeconds(alightStop.lat, alightStop.lon, dest.lat, dest.lng);
                     const totalTime = walkToBoard + waitTime + rideTime + walkFromAlight;
 
