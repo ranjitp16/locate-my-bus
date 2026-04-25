@@ -462,6 +462,70 @@
 
     tripCloseBtn.addEventListener('click', exitTripMode);
 
+    /* ── Geocoding and destination ── */
+    tripDestInput.addEventListener('keydown', function (e) {
+        if (e.key !== 'Enter') return;
+        e.preventDefault();
+        const query = tripDestInput.value.trim();
+        if (!query) return;
+        geocodeAddress(query);
+    });
+
+    async function geocodeAddress(query) {
+        try {
+            const res = await fetch('/api/azure-maps/geocoding?api-version=2023-06-01&query=' + encodeURIComponent(query) + '&top=5', {
+                headers: { 'X-Azure-Maps-Proxy': '1' }
+            });
+            const data = await res.json();
+            const features = data.features || [];
+            if (!features.length) {
+                geocodeDropdown.innerHTML = '<div class="geocode-item" style="color:var(--text-muted);">No results found</div>';
+                geocodeDropdown.classList.add('open');
+                return;
+            }
+            geocodeDropdown.innerHTML = '';
+            features.forEach(function (f) {
+                const item = document.createElement('div');
+                item.className = 'geocode-item';
+                item.textContent = f.properties?.address?.formattedAddress || f.properties?.address?.freeformAddress || query;
+                item.addEventListener('click', function () {
+                    const coords = f.geometry.coordinates; // [lng, lat]
+                    setDestination(coords[1], coords[0], item.textContent);
+                    geocodeDropdown.classList.remove('open');
+                });
+                geocodeDropdown.appendChild(item);
+            });
+            geocodeDropdown.classList.add('open');
+        } catch (err) {
+            console.error('Geocoding failed:', err);
+        }
+    }
+
+    document.addEventListener('click', function (e) {
+        if (!geocodeDropdown.contains(e.target) && e.target !== tripDestInput) {
+            geocodeDropdown.classList.remove('open');
+        }
+    });
+
+    function setDestination(lat, lng, name) {
+        destLat = lat;
+        destLng = lng;
+        tripDestInput.value = name || (lat.toFixed(4) + ', ' + lng.toFixed(4));
+        mapAdapter.setDestinationPin(lat, lng, function (newLat, newLng) {
+            destLat = newLat;
+            destLng = newLng;
+            tripDestInput.value = newLat.toFixed(4) + ', ' + newLng.toFixed(4);
+            computeTrip();
+        });
+        mapAdapter.setView(lat, lng, mapAdapter.getZoom(), true);
+        computeTrip();
+    }
+
+    tripDestPinBtn.addEventListener('click', function () {
+        const center = mapAdapter.getCenter();
+        setDestination(center.lat, center.lng, null);
+    });
+
     /* ── Fetch live vehicles for current selection ── */
     function fetchLive() {
         const agencyId = agencySelect.value;
