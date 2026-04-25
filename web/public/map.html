@@ -474,24 +474,23 @@
 
     async function geocodeAddress(query) {
         try {
-            const res = await fetch('/api/azure-maps/geocoding?api-version=2023-06-01&query=' + encodeURIComponent(query) + '&top=5', {
+            const res = await fetch('/api/azure-maps/search/address/json?api-version=1.0&query=' + encodeURIComponent(query) + '&limit=5&typeahead=true', {
                 headers: { 'X-Azure-Maps-Proxy': '1' }
             });
             const data = await res.json();
-            const features = data.features || [];
-            if (!features.length) {
+            const results = data.results || [];
+            if (!results.length) {
                 geocodeDropdown.innerHTML = '<div class="geocode-item" style="color:var(--text-muted);">No results found</div>';
                 geocodeDropdown.classList.add('open');
                 return;
             }
             geocodeDropdown.innerHTML = '';
-            features.forEach(function (f) {
+            results.forEach(function (r) {
                 const item = document.createElement('div');
                 item.className = 'geocode-item';
-                item.textContent = f.properties?.address?.formattedAddress || f.properties?.address?.freeformAddress || query;
+                item.textContent = r.address?.freeformAddress || query;
                 item.addEventListener('click', function () {
-                    const coords = f.geometry.coordinates; // [lng, lat]
-                    setDestination(coords[1], coords[0], item.textContent);
+                    setDestination(r.position.lat, r.position.lon, item.textContent);
                     geocodeDropdown.classList.remove('open');
                 });
                 geocodeDropdown.appendChild(item);

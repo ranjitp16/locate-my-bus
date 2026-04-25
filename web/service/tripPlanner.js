@@ -601,7 +601,7 @@ async function planTrip(pool, agencyId, originLat, originLng, destLat, destLng) 
     const oneXfer = await findOneTransferRoutes(pool, agencyId, origin, dest, stopsNearA, stopsNearB, routeStopIndex, nowSecs);
 
     let allResults = [...direct, ...oneXfer];
-    const bestSoFar = allResults.length ? Math.min(...allResults.map(r => r.totalTime)) : Infinity;
+    const bestSoFar = allResults.reduce((min, r) => r.totalTime < min ? r.totalTime : min, Infinity);
 
     const twoXfer = await findTwoTransferRoutes(pool, agencyId, origin, dest, stopsNearA, stopsNearB, routeStopIndex, nowSecs, bestSoFar);
     allResults = [...allResults, ...twoXfer];
