@@ -470,7 +470,15 @@ body { overflow: hidden; }
     color: var(--accent);
     cursor: pointer;
     text-decoration: none;
-    font-size: 0.72rem;
+    font-size: 0.82rem;
+    padding: 6px 10px;
+    border-radius: 5px;
+    background: var(--surface-alt, rgba(128,128,128,0.1));
+    display: inline-block;
+    min-width: 44px;
+    min-height: 36px;
+    line-height: 24px;
+    text-align: center;
 }
 
 .trip-option {
