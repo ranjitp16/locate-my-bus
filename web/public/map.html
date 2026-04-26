@@ -438,6 +438,7 @@
         tripBtn.classList.add('active');
         controlsEl.style.display = 'none';
         tripSheet.classList.add('open');
+        setSnap(1); // start at half height
         destLat = null;
         destLng = null;
         tripOptions = null;
@@ -477,6 +478,35 @@
     });
 
     tripCloseBtn.addEventListener('click', exitTripMode);
+
+    /* ── Bottom sheet drag-to-resize ── */
+    const sheetHandle = document.getElementById('trip-sheet-handle');
+    const snapStates = ['snap-peek', 'snap-half', 'snap-full'];
+    let currentSnap = 1; // start at half
+    let dragStartY = 0;
+
+    function setSnap(idx) {
+        currentSnap = Math.max(0, Math.min(snapStates.length - 1, idx));
+        snapStates.forEach(function (cls) { tripSheet.classList.remove(cls); });
+        tripSheet.classList.add(snapStates[currentSnap]);
+    }
+
+    sheetHandle.addEventListener('touchstart', function (e) {
+        dragStartY = e.touches[0].clientY;
+        tripSheet.style.transition = 'none';
+    }, { passive: true });
+
+    sheetHandle.addEventListener('touchend', function (e) {
+        tripSheet.style.transition = '';
+        const dy = dragStartY - e.changedTouches[0].clientY;
+        if (dy > 40) setSnap(currentSnap + 1);       // swipe up → expand
+        else if (dy < -40) setSnap(currentSnap - 1);  // swipe down → collapse
+    });
+
+    // Also support click to cycle: peek → half → full → peek
+    sheetHandle.addEventListener('click', function () {
+        setSnap((currentSnap + 1) % snapStates.length);
+    });
 
     /* ── Geocoding and destination ── */
     const tripDestSearchBtn = document.getElementById('trip-dest-search-btn');

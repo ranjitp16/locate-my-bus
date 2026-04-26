@@ -359,9 +359,12 @@ body { overflow: hidden; }
     padding-bottom: max(20px, env(safe-area-inset-bottom, 20px));
     max-height: 70vh;
     overflow-y: auto;
-    transition: transform 0.25s ease;
+    transition: max-height 0.25s ease;
 }
 #trip-sheet.open { display: block; }
+#trip-sheet.snap-peek { max-height: 25vh; }
+#trip-sheet.snap-half { max-height: 45vh; }
+#trip-sheet.snap-full { max-height: 80vh; }
 
 #trip-sheet-handle {
     width: 36px;
@@ -369,7 +372,12 @@ body { overflow: hidden; }
     background: var(--border);
     border-radius: 2px;
     margin: 0 auto 10px;
+    cursor: grab;
+    /* Larger touch target */
+    padding: 8px 0;
+    background-clip: content-box;
 }
+#trip-sheet-handle:active { cursor: grabbing; }
 
 #trip-sheet-title {
     font-weight: 700;
