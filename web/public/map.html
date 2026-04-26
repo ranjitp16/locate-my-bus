@@ -883,6 +883,21 @@
         }
 
         mapAdapter.showTripBuses(displayVehicles, pinnedIds);
+
+        // Tag trip options as "scheduled" if any bus leg has no live bus
+        if (tripOptions) {
+            tripOptions.forEach(function (opt, idx) {
+                const optBusLegs = opt.legs.filter(function (l) { return l.type === 'bus'; });
+                const allLive = optBusLegs.every(function (l) { return allByRoute[l.routeId] && allByRoute[l.routeId].length > 0; });
+                const labelEl = tripResults.querySelectorAll('.trip-option-label')[idx];
+                if (labelEl && !allLive) {
+                    if (!labelEl.textContent.includes('(scheduled)')) {
+                        labelEl.textContent = labelEl.textContent + ' (scheduled)';
+                    }
+                    labelEl.closest('.trip-option')?.classList.add('scheduled');
+                }
+            });
+        }
     }
 
     /* ── Fetch live vehicles for current selection ── */
