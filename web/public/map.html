@@ -655,10 +655,24 @@
             const nowDate = new Date();
             let clock = new Date(nowDate);
 
+            const BUFFER_MS = 2 * 60 * 1000; // 2-minute buffer before boarding
+            let leaveTime = null;
+
             opt.legs.forEach(function (leg, li) {
                 if (li > 0) legsHtml += '<span class="arrow">→</span>';
                 if (leg.type === 'walk') {
                     legsHtml += '<span class="walk">🚶' + formatMinutes(leg.durationSeconds) + '</span>';
+
+                    // For the first walk: compute leave time from next bus boarding - walk - buffer
+                    if (li === 0) {
+                        const nextBus = opt.legs.find(function (l) { return l.type === 'bus'; });
+                        if (nextBus && nextBus.boardTime) {
+                            const boardDate = gtfsTimeToDate(nextBus.boardTime);
+                            clock = new Date(boardDate.getTime() - leg.durationSeconds * 1000 - BUFFER_MS);
+                        }
+                    }
+
+                    if (li === 0) leaveTime = new Date(clock);
                     const leaveAt = formatTime(clock);
                     clock = new Date(clock.getTime() + leg.durationSeconds * 1000);
                     const arriveAt = formatTime(clock);
@@ -682,7 +696,7 @@
                     if (boardDate > clock) {
                         clock = boardDate;
                     }
-                    detailHtml += '🚏 <b>' + formatTime(boardDate) + '</b> — Board <b>' + (leg.routeName || leg.routeId) + '</b> at ' + (leg.boardStop.name || 'stop') + ' · ' + (leg.numStops || '?') + ' stops<br>';
+                    detailHtml += '🚏 <b>' + formatTime(boardDate) + '</b> — Board <b>' + leg.routeId + '</b> at ' + (leg.boardStop.name || 'stop') + ' · ' + (leg.numStops || '?') + ' stops<br>';
                     if (alightDate) {
                         clock = alightDate;
                         detailHtml += '🚏 <b>' + formatTime(alightDate) + '</b> — Get off at <b>' + (leg.alightStop.name || 'stop') + '</b><br>';
@@ -690,7 +704,7 @@
                 }
             });
 
-            const departAt = formatTime(nowDate);
+            const departAt = formatTime(leaveTime || nowDate);
             const arriveAt = formatTime(clock);
 
             html += '<div class="trip-option' + (idx === selectedTripIdx ? ' selected' : '') + '" data-trip-idx="' + idx + '">' +
