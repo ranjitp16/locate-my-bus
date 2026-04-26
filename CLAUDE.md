@@ -101,7 +101,7 @@ Express 5, single file. Uses a `pg.Pool` for all queries. No ORM.
 
 **Onboarding flow** (`POST /api/agencies/add` → `web/service/addAgency.js` → `web/repository/addAgency.js`):
 - Downloads the GTFS static zip as a stream using `unzipper` + `request`.
-- Parses `agency.txt`, `routes.txt`, `shapes.txt`, `trips.txt` in sequence inside a single DB transaction.
+- Parses `agency.txt`, `routes.txt`, `shapes.txt`, `trips.txt`, `stops.txt`, `stop_times.txt`, `calendar.txt`, `calendar_dates.txt` in sequence inside a single DB transaction.
 - Column mapping is driven by `information_schema.columns` — the code queries the DB schema at runtime to know which columns to insert. This means the DB schema is the source of truth for what gets imported.
 - Bulk inserts use batches of 5 000 rows (`BATCH_SIZE = 5000` in repository).
 
@@ -113,8 +113,8 @@ Express 5, single file. Uses a `pg.Pool` for all queries. No ORM.
 
 The map uses **Azure Maps SDK v3** via a thin adapter pattern:
 
-- `map.html` — main map page; all map calls go through `window.mapAdapter`; polls `/live/:agency_id/:route_id` every 15 s; marker click pins the map to that bus; zoom/center persisted in `localStorage`; light/dark theme via `data-theme` on `<html>` stored in `localStorage`. Shows route shape polyline via `/api/shape/:agency_id/:trip_id` when a bus is pinned. Auto-pins nearest bus when user location is active.
-- `assets/map-adapter-azure.js` — IIFE that exposes `window.mapAdapter` with 14 methods (`init`, `setView`, `getZoom`, `onClick`, `onMoveEnd`, `updateBusMarkers`, `onMarkerClick`, `onMarkerPopupOpen`, `onMarkerPopupClose`, `drawRoute`, `clearRoute`, `closeOpenPopup`, `setUserLocation`, `clearUserLocation`). Handles all Azure Maps SDK calls internally — `map.html` never calls Atlas APIs directly.
+- `map.html` — main map page; all map calls go through `window.mapAdapter`; polls `/live/:agency_id/:route_id` every 15 s; marker click pins the map to that bus; zoom/center persisted in `localStorage`; light/dark theme via `data-theme` on `<html>` stored in `localStorage`. Shows route shape polyline via `/api/shape/:agency_id/:trip_id` when a bus is pinned. Auto-pins nearest bus when user location is active. Trip planning mode with geocoding, destination pin, trip results in resizable bottom sheet.
+- `assets/map-adapter-azure.js` — IIFE that exposes `window.mapAdapter` with methods for map lifecycle, bus markers, route shapes, user location, destination pins, trip plan rendering, and trip bus display. Handles all Azure Maps SDK calls internally — `map.html` never calls Atlas APIs directly. Exposes `mapAdapter.TRIP_COLORS` palette shared with trip result badges.
   - Bus markers are `atlas.HtmlMarker` instances reused across polls (keyed by `vehicle_id`) so the pinned bus can animate along the route shape via `requestAnimationFrame`.
   - Route shape is rendered as an SVG overlay (not a WebGL layer) to allow CSS `stroke-dasharray` animation; reprojected on each map `move` event via `map.positionsToPixels()`.
   - At most one popup is open at a time (`_openPopup` state); popup content is preserved (not replaced) across polls for the pinned bus so the live age counter DOM reference stays valid.
@@ -132,3 +132,10 @@ Key relationships:
 - `agency` ← `route` (cascade delete)
 - `route` ← `trip`, `shape` ← `shape_point` (cascade delete)
 - `live_vehicle_position` FKs to `agency`, `route`, and `trip` — vehicles not matching known routes/trips are silently dropped by the daemon.
+- `stop` / `stop_time` — bus stops and scheduled arrival/departure times (imported from GTFS `stops.txt` and `stop_times.txt`).
+- `calendar` / `calendar_date` — GTFS service day schedules and exceptions (weekday/weekend/holiday). Used by trip planner to filter to trips running today.
+- Performance indexes on `stop(agency,lat,lon)`, `stop_time(agency,stop_id)`, `trip(agency,route_id)`, `trip(agency,service_id)`, `live_vehicle_position(agency,route_id,trip_id)`.
+
+### Trip planner (`web/service/tripPlanner.js` + `web/repository/tripPlanner.js`)
+
+Schedule-based route search with pruning. Finds direct routes, 1-transfer, and 2-transfer options scored by walking distance, transfer count, and total time. Calendar-aware (filters by active service_id for today). Performance guards: 8s timeout, iteration caps, result caps, stop-time cache, batch transfer stop computation via in-memory set intersection. Provider-agnostic: geocoding and walking directions go through normalized server endpoints (`/api/maps/geocode`, `/api/maps/walk-route`) that abstract Azure Maps API response formats.

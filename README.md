@@ -2,7 +2,7 @@
 
 **Live demo: [bus.ranjitpandey.dev](https://bus.ranjitpandey.dev)**
 
-Real-time bus tracking for any GTFS-RT compatible transit agency. A C++ daemon fetches live vehicle position data every 15 seconds, stores it in PostgreSQL, and a Node.js/Express server exposes it to an Azure Maps browser client.
+Real-time bus tracking and trip planning for any GTFS-RT compatible transit agency. A C++ daemon fetches live vehicle position data every 15 seconds, stores it in PostgreSQL, and a Node.js/Express server exposes it to an Azure Maps browser client. Plan trips with walking routes, multi-transfer bus connections, and live bus tracking.
 
 ![Screenshot](./images/screenshot.png)
 
@@ -27,6 +27,8 @@ GTFS Static Feed (zip)          GTFS-RT Feed (protobuf)
                   ├── public.live_vehicle_position
                   ├── public.shape / shape_point
                   ├── public.trip
+                  ├── public.stop / stop_time
+                  ├── public.calendar / calendar_date
                   ├── public.poll_iteration
                   └── public.feed_execution
                        │
@@ -37,6 +39,9 @@ GTFS Static Feed (zip)          GTFS-RT Feed (protobuf)
            - GET /api/agencies              → JSON
            - POST /api/agencies/add         → onboard agency
            - DELETE /api/agencies/delete/:id
+           - GET /api/trip-plan/:agency_id  → trip planner
+           - GET /api/maps/geocode          → geocoding (provider-agnostic)
+           - GET /api/maps/walk-route       → walking directions (provider-agnostic)
            - GET /api/dashboard/*           → monitoring stats
            - Serves static frontend
                        │
@@ -48,6 +53,9 @@ GTFS Static Feed (zip)          GTFS-RT Feed (protobuf)
            - Distance to each bus in popup
            - Pinnable markers, light/dark theme
            - Pinned bus animates along route shape
+           - Trip planner: geocode destination or drop pin,
+             finds optimal routes (0-2 transfers),
+             shows walking legs + live bus positions
 ```
 
 ---
@@ -141,6 +149,9 @@ make run-docker-web
 | `GET`    | `/api/dashboard/stats`            | ✓    | Aggregate poll stats                     |
 | `GET`    | `/api/dashboard/iterations`       | ✓    | Last 50 poll iterations                  |
 | `GET`    | `/api/dashboard/executions/:id`   | ✓    | Per-agency breakdown for an iteration    |
+| `GET`    | `/api/trip-plan/:agency_id`        | —    | Trip planner (query: originLat/Lng, destLat/Lng) |
+| `GET`    | `/api/maps/geocode`               | —    | Address search (provider-agnostic)       |
+| `GET`    | `/api/maps/walk-route`            | —    | Walking directions (provider-agnostic)   |
 | `GET`    | `/api/dashboard/analytics`        | ✓    | Feed analytics and slow-feed detection   |
 | `GET`    | `/api/dashboard/latency`          | ✓    | Download latency history per agency      |
 
@@ -158,9 +169,10 @@ Auth-protected routes require the `x-access-key` header to match `DELETE_ACCESS_
 
 ## How It Works
 
-- **Agency onboarding** downloads the GTFS static zip, parses `agency.txt` and `routes.txt`, and inserts them into PostgreSQL in a single transaction.
+- **Agency onboarding** downloads the GTFS static zip, parses `agency.txt`, `routes.txt`, `shapes.txt`, `trips.txt`, `stops.txt`, `stop_times.txt`, `calendar.txt`, and `calendar_dates.txt`, and inserts them into PostgreSQL in a single transaction.
 - **The daemon** reads all agencies from the DB every 15 seconds, groups them by unique `rt_feed_url`, downloads each distinct feed in parallel (bounded by CPU core count), and replaces positions in `live_vehicle_position` with a DELETE + bulk INSERT per agency. Per-poll metrics are written to `poll_iteration` and `feed_execution` for monitoring.
 - **The frontend** dynamically loads agencies and their routes, polls `/live/:agency_id/:route_id` every 15 seconds, and re-renders markers. All map calls go through a thin adapter (`map-adapter-azure.js`) that wraps Azure Maps SDK v3, keeping `map.html` free of any SDK-specific code. The browser Geolocation API tracks the user's position (shown as a pulsing blue dot); the nearest bus is automatically pinned each poll. Click a marker to manually pin it (map follows that bus and draws its route shape as an animated SVG overlay); click the map background to return to auto-pin. The pinned bus animates smoothly along the route shape between polls. Every bus popup shows its distance from the user via the Haversine formula. Map zoom and position are persisted in `localStorage`.
+- **Trip planner** — enter a destination (type an address or drop a pin) and the system finds optimal transit routes from your current location. Supports direct routes and up to 2 transfers. Results are ranked by walking distance, transfers, and total time. Each trip option shows a step-by-step timeline with leave time, boarding time, alighting time, and arrival time. Walking legs show actual paths via the walking directions API. Bus legs show the route shape trimmed to the boarding→alighting segment, with the bus's approach path drawn as a faint dashed line. Live bus positions are tracked — the closest bus on each route is pinned automatically. A resizable bottom sheet shows trip results with a collapsible card for each option. The planner respects GTFS calendar data (weekday/weekend/holiday schedules) and shows a "(scheduled)" tag for routes without a live bus. Geocoding and walking directions use provider-agnostic server endpoints — swap map providers by changing only the server proxy implementation.
 
 ---
 
