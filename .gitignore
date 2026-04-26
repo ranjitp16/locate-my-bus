@@ -13,3 +13,4 @@
 *.sqlite
 *.sqlite3
 .superpowers/
+.playwright-mcp/
