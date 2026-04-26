@@ -37,9 +37,10 @@
 
 <div id="map">
     <div id="map-left-controls">
-        <button id="drop-pin-btn" data-tip="Drop pin">&#128205;</button>
-        <button id="my-location-btn" data-tip="My location"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="8"/><line x1="12" y1="2" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="2" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22" y2="12"/></svg></button>
-        <button id="stop-tracking-btn" data-tip="Stop tracking" style="display:none;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="8"/><line x1="12" y1="2" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="2" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22" y2="12"/><line x1="4" y1="4" x2="20" y2="20" stroke-width="2.5"/></svg></button>
+        <button id="drop-pin-btn" data-tip="Drop pin" aria-label="Drop pin">&#128205;</button>
+        <button id="my-location-btn" data-tip="My location" aria-label="My location"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="8"/><line x1="12" y1="2" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="2" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22" y2="12"/></svg></button>
+        <button id="stop-tracking-btn" data-tip="Stop tracking" aria-label="Stop tracking" style="display:none;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="8"/><line x1="12" y1="2" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="2" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22" y2="12"/><line x1="4" y1="4" x2="20" y2="20" stroke-width="2.5"/></svg></button>
+        <button id="trip-btn" data-tip="Plan trip" aria-label="Plan trip" style="display:none;">🗺️</button>
     </div>
     <div id="controls">
         <div id="controls-header">
@@ -64,6 +65,31 @@
             <span id="detail-fare"></span>
         </div>
     </div>
+    <div id="trip-sheet">
+        <div id="trip-sheet-handle"></div>
+        <div id="trip-sheet-title">
+            <span>Plan Trip</span>
+            <button id="trip-close-btn" aria-label="Close trip planner" style="background:none;border:none;font-size:1.1rem;cursor:pointer;color:var(--text-muted);">✕</button>
+        </div>
+        <div id="trip-inputs">
+            <div class="trip-origin-row">
+                <span style="font-size:0.85rem;">📍</span>
+                <div class="trip-origin-pill">My Location</div>
+            </div>
+            <div class="trip-dest-row">
+                <span style="font-size:0.85rem;">🏁</span>
+                <input type="text" id="trip-dest-input" placeholder="Where to? (address or drop pin)" autocomplete="off">
+                <button id="trip-dest-search-btn" aria-label="Search destination">🔍</button>
+                <button id="trip-dest-pin-btn" aria-label="Drop destination pin">📌</button>
+            </div>
+        </div>
+        <div id="trip-loading" style="display:none;">
+            <div class="spinner"></div>
+            <div style="margin-top:6px;">Finding best routes...</div>
+        </div>
+        <div id="trip-results" style="display:none;"></div>
+    </div>
+    <div id="geocode-dropdown"></div>
 </div>
 
 <script src="https://atlas.microsoft.com/sdk/javascript/mapcontrol/3/atlas.min.js"></script>
@@ -141,6 +167,8 @@
     });
 
     mapAdapter.onMarkerClick(function ({ vehicleId, lat, lon, tripId }) {
+        // In trip mode, don't draw the normal route — the trip plan routes are already shown
+        if (tripMode) return;
         if (pinnedVehicleId === vehicleId) {
             pinnedVehicleId = null;
             manuallyPinned  = false;
@@ -158,10 +186,10 @@
     mapAdapter.onMarkerPopupOpen(function () {
         clearInterval(ageTimer);
         ageTimer = setInterval(function () {
-            const el = document.querySelector('.popup-content-container .age-counter, .atlas-popup-content-container .age-counter');
-            if (!el) return;
-            const ts = parseInt(el.dataset.ts, 10);
-            if (Number.isFinite(ts)) el.textContent = String(Math.round((Date.now() - ts) / 1000));
+            document.querySelectorAll('.popup-content-container .age-counter, .atlas-popup-content-container .age-counter').forEach(function (el) {
+                const ts = parseInt(el.dataset.ts, 10);
+                if (Number.isFinite(ts)) el.textContent = String(Math.round((Date.now() - ts) / 1000));
+            });
         }, 1000);
     });
 
@@ -169,6 +197,11 @@
         clearInterval(ageTimer);
         ageTimer = null;
     });
+
+    function escapeHtml(v) {
+        if (v == null) return '';
+        return String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
 
     function haversineMeters(lat1, lng1, lat2, lng2) {
         const R = 6371000;
@@ -288,6 +321,7 @@
         dropPinBtn.classList.remove('active');
         myLocationBtn.classList.remove('active');
         stopTrackingBtn.style.display = 'none';
+        showTripBtn();
     }
 
     function onLocationUpdate(pos) {
@@ -304,11 +338,23 @@
         if (firstTime) {
             mapAdapter.setView(lat, lng, 13, true);
         }
+        showTripBtn();
+    }
+
+    function showLocationDenied() {
+        const existing = document.getElementById('loc-denied-msg');
+        if (existing) existing.remove();
+        const msg = document.createElement('div');
+        msg.id = 'loc-denied-msg';
+        msg.textContent = 'Location access denied. Enable it in browser settings.';
+        document.getElementById('map').appendChild(msg);
+        setTimeout(function () { msg.remove(); }, 5000);
     }
 
     function onLocationError(err) {
         if (err.code === err.PERMISSION_DENIED) {
             stopLocation();
+            showLocationDenied();
         } else if (err.code === err.TIMEOUT) {
             navigator.geolocation.clearWatch(locationWatchId);
             locationWatchId = navigator.geolocation.watchPosition(
@@ -349,6 +395,8 @@
             userLng = lng;
             if (lastStops.length) mapAdapter.updateStopMarkers(lastStops, userLat, userLng);
         });
+        if (lastStops.length) mapAdapter.updateStopMarkers(lastStops, userLat, userLng);
+        showTripBtn();
     });
 
     myLocationBtn.addEventListener('click', () => {
@@ -361,6 +409,505 @@
     });
 
     startLocation();
+
+    /* ── Trip planning mode ── */
+    let tripMode = false;
+    let destLat = null;
+    let destLng = null;
+    let tripOptions = null;
+    let selectedTripIdx = 0;
+    let lastEnrichedLegs = null;
+    const tripBtn = document.getElementById('trip-btn');
+    const tripSheet = document.getElementById('trip-sheet');
+    const tripCloseBtn = document.getElementById('trip-close-btn');
+    const tripDestInput = document.getElementById('trip-dest-input');
+    const tripDestPinBtn = document.getElementById('trip-dest-pin-btn');
+    const tripLoading = document.getElementById('trip-loading');
+    const tripResults = document.getElementById('trip-results');
+    const tripInputsEl = document.getElementById('trip-inputs');
+    const geocodeDropdown = document.getElementById('geocode-dropdown');
+    const controlsEl = document.getElementById('controls');
+
+    const TRIP_MAX_DISTANCE = 75000; // 75km — hide trip button if user is farther from agency area
+
+    function showTripBtn() {
+        if (userLat === null || !agencySelect.value) {
+            tripBtn.style.display = 'none';
+            return;
+        }
+        // Check if user is within range of the map view (which centers on the agency's city)
+        const center = mapAdapter.getCenter();
+        const dist = haversineMeters(userLat, userLng, center.lat, center.lng);
+        tripBtn.style.display = dist <= TRIP_MAX_DISTANCE ? '' : 'none';
+    }
+
+    function enterTripMode() {
+        tripMode = true;
+        tripBtn.classList.add('active');
+        controlsEl.style.display = 'none';
+        tripSheet.classList.add('open');
+        setSnap(1); // start at half height
+        destLat = null;
+        destLng = null;
+        tripOptions = null;
+        tripResults.style.display = 'none';
+        tripLoading.style.display = 'none';
+        tripDestInput.value = '';
+        tripInputsEl.style.display = '';
+        // Stop polling and clear existing map overlays
+        clearInterval(pollTimer);
+        clearInterval(countdownTimer);
+        pollTimer = null;
+        mapAdapter.clearRoute();
+        mapAdapter.clearStopMarkers();
+        mapAdapter.updateBusMarkers([], null, null, null);
+    }
+
+    function exitTripMode() {
+        tripMode = false;
+        tripBtn.classList.remove('active');
+        controlsEl.style.display = '';
+        tripSheet.classList.remove('open');
+        geocodeDropdown.classList.remove('open');
+        mapAdapter.clearDestinationPin();
+        mapAdapter.clearTripPlan();
+        destLat = null;
+        destLng = null;
+        tripOptions = null;
+        // Restart polling if it wasn't manually paused before entering trip mode
+        if (!pollingPaused && agencySelect.value && routeSelect.value) {
+            startPolling();
+        }
+    }
+
+    tripBtn.addEventListener('click', function () {
+        if (tripMode) exitTripMode();
+        else enterTripMode();
+    });
+
+    tripCloseBtn.addEventListener('click', exitTripMode);
+
+    /* ── Bottom sheet drag-to-resize ── */
+    const sheetHandle = document.getElementById('trip-sheet-handle');
+    const snapStates = ['snap-peek', 'snap-half', 'snap-full'];
+    let currentSnap = 1; // start at half
+    let dragStartY = 0;
+
+    function setSnap(idx) {
+        currentSnap = Math.max(0, Math.min(snapStates.length - 1, idx));
+        snapStates.forEach(function (cls) { tripSheet.classList.remove(cls); });
+        tripSheet.classList.add(snapStates[currentSnap]);
+    }
+
+    sheetHandle.addEventListener('touchstart', function (e) {
+        dragStartY = e.touches[0].clientY;
+        tripSheet.style.transition = 'none';
+    }, { passive: true });
+
+    sheetHandle.addEventListener('touchend', function (e) {
+        tripSheet.style.transition = '';
+        const dy = dragStartY - e.changedTouches[0].clientY;
+        if (dy > 40) setSnap(currentSnap + 1);       // swipe up → expand
+        else if (dy < -40) setSnap(currentSnap - 1);  // swipe down → collapse
+    });
+
+    // Also support click to cycle: peek → half → full → peek
+    sheetHandle.addEventListener('click', function () {
+        setSnap((currentSnap + 1) % snapStates.length);
+    });
+
+    /* ── Geocoding and destination ── */
+    const tripDestSearchBtn = document.getElementById('trip-dest-search-btn');
+
+    function submitDestSearch() {
+        const query = tripDestInput.value.trim();
+        if (!query) return;
+        geocodeAddress(query);
+    }
+
+    tripDestInput.addEventListener('keydown', function (e) {
+        if (e.key !== 'Enter') return;
+        e.preventDefault();
+        submitDestSearch();
+    });
+
+    tripDestSearchBtn.addEventListener('click', submitDestSearch);
+
+    async function geocodeAddress(query) {
+        try {
+            const res = await fetch('/api/maps/geocode?query=' + encodeURIComponent(query) + '&limit=5&lat=' + userLat + '&lon=' + userLng + '&radius=75000', { headers: { 'X-Azure-Maps-Proxy': '1' } });
+            const data = await res.json();
+            const results = data.results || [];
+            if (!results.length) {
+                geocodeDropdown.innerHTML = '<div class="geocode-item" style="color:var(--text-muted);">No results found</div>';
+                geocodeDropdown.classList.add('open');
+                return;
+            }
+            geocodeDropdown.innerHTML = '';
+            results.forEach(function (r) {
+                const item = document.createElement('div');
+                item.className = 'geocode-item';
+                item.textContent = r.displayName;
+                item.addEventListener('click', function () {
+                    setDestination(r.lat, r.lon, item.textContent);
+                    geocodeDropdown.classList.remove('open');
+                });
+                geocodeDropdown.appendChild(item);
+            });
+            geocodeDropdown.classList.add('open');
+        } catch (err) {
+            console.error('Geocoding failed:', err);
+        }
+    }
+
+    document.addEventListener('click', function (e) {
+        if (!geocodeDropdown.contains(e.target) && e.target !== tripDestInput) {
+            geocodeDropdown.classList.remove('open');
+        }
+    });
+
+    function setDestination(lat, lng, name) {
+        destLat = lat;
+        destLng = lng;
+        tripDestInput.value = name || (lat.toFixed(4) + ', ' + lng.toFixed(4));
+        mapAdapter.setDestinationPin(lat, lng, function (newLat, newLng) {
+            destLat = newLat;
+            destLng = newLng;
+            tripDestInput.value = newLat.toFixed(4) + ', ' + newLng.toFixed(4);
+            computeTrip();
+        });
+        mapAdapter.setView(lat, lng, mapAdapter.getZoom(), true);
+        computeTrip();
+    }
+
+    tripDestPinBtn.addEventListener('click', function () {
+        const center = mapAdapter.getCenter();
+        setDestination(center.lat, center.lng, null);
+    });
+
+    /* ── Trip computation and results ── */
+    async function computeTrip() {
+        if (destLat === null || userLat === null) return;
+        const agencyId = agencySelect.value;
+        if (!agencyId) return;
+
+        tripLoading.style.display = '';
+        tripResults.style.display = 'none';
+        tripInputsEl.style.display = 'none';
+        mapAdapter.clearTripPlan();
+
+        try {
+            const res = await fetch('/api/trip-plan/' + agencyId +
+                '?originLat=' + userLat + '&originLng=' + userLng +
+                '&destLat=' + destLat + '&destLng=' + destLng);
+            const data = await res.json();
+            tripLoading.style.display = 'none';
+
+            if (!data.options || !data.options.length) {
+                tripResults.innerHTML = '<div style="padding:12px 0;text-align:center;color:var(--text-muted);font-size:0.8rem;">' +
+                    escapeHtml(data.error || 'No routes found for this trip.') + '</div>';
+                tripResults.style.display = '';
+                return;
+            }
+
+            tripOptions = data.options;
+            selectedTripIdx = 0;
+            renderTripResults();
+            selectTripOption(0);
+        } catch (err) {
+            console.error('Trip plan failed:', err);
+            tripLoading.style.display = 'none';
+            tripResults.innerHTML = '<div style="padding:12px 0;text-align:center;color:var(--text-muted);font-size:0.8rem;">Trip planning failed. Try again.</div>';
+            tripResults.style.display = '';
+        }
+    }
+
+    // Shared palette exposed by map-adapter-azure.js
+    const TRIP_COLORS = mapAdapter.TRIP_COLORS;
+
+    function formatMinutes(secs) {
+        const m = Math.round(secs / 60);
+        return m < 1 ? '< 1 min' : m + ' min';
+    }
+
+    function formatTime(date) {
+        const h = date.getHours(), m = date.getMinutes();
+        const suffix = h >= 12 ? 'PM' : 'AM';
+        const h12 = h > 12 ? h - 12 : (h === 0 ? 12 : h);
+        return h12 + ':' + String(m).padStart(2, '0') + ' ' + suffix;
+    }
+
+    function gtfsTimeToDate(gtfsTime) {
+        if (!gtfsTime) return null;
+        const parts = gtfsTime.split(':');
+        const d = new Date();
+        d.setHours(parseInt(parts[0], 10) % 24, parseInt(parts[1], 10), parseInt(parts[2] || '0', 10), 0);
+        return d;
+    }
+
+    function renderTripResults() {
+        const destDisplay = tripDestInput.value.length > 25 ? tripDestInput.value.substring(0, 25) + '…' : tripDestInput.value;
+        let html = '<div class="trip-summary-row"><span>📍 My Location → 🏁 ' +
+            escapeHtml(destDisplay) +
+            '</span><span><button type="button" id="trip-refresh-link" title="Refresh results">🔄</button> <button type="button" id="trip-edit-link">Edit</button></span></div>';
+
+        tripOptions.forEach(function (opt, idx) {
+            let legsHtml = '';
+            let detailHtml = '';
+            let busColorIdx = 0;
+            // Compute a running clock for timing
+            const nowDate = new Date();
+            let clock = new Date(nowDate);
+
+            const BUFFER_MS = 2 * 60 * 1000; // 2-minute buffer before boarding
+            let leaveTime = null;
+
+            opt.legs.forEach(function (leg, li) {
+                if (li > 0) legsHtml += '<span class="arrow">→</span>';
+                if (leg.type === 'walk') {
+                    legsHtml += '<span class="walk">🚶' + formatMinutes(leg.durationSeconds) + '</span>';
+
+                    // For the first walk: compute leave time from next bus boarding - walk - buffer
+                    if (li === 0) {
+                        const nextBus = opt.legs.find(function (l) { return l.type === 'bus'; });
+                        if (nextBus && nextBus.boardTime) {
+                            const boardDate = gtfsTimeToDate(nextBus.boardTime);
+                            clock = new Date(boardDate.getTime() - leg.durationSeconds * 1000 - BUFFER_MS);
+                        }
+                    }
+
+                    if (li === 0) leaveTime = new Date(clock);
+                    const leaveAt = formatTime(clock);
+                    clock = new Date(clock.getTime() + leg.durationSeconds * 1000);
+                    const arriveAt = formatTime(clock);
+                    if (li === 0) {
+                        detailHtml += '🚶 <b>' + leaveAt + '</b> — Leave, walk to <b>' + escapeHtml(leg.to.name || 'stop') + '</b> (' + escapeHtml(leg.distanceMeters) + 'm)<br>';
+                    } else {
+                        detailHtml += '🚶 <b>' + leaveAt + '</b> — Walk to <b>' + escapeHtml(leg.to.name || 'destination') + '</b> (' + escapeHtml(leg.distanceMeters) + 'm)<br>';
+                    }
+                    // If this is the last leg, show arrival time
+                    if (li === opt.legs.length - 1) {
+                        detailHtml += '🏁 <b>' + arriveAt + '</b> — Arrive at destination<br>';
+                    }
+                } else if (leg.type === 'bus') {
+                    const color = TRIP_COLORS[busColorIdx % TRIP_COLORS.length];
+                    busColorIdx++;
+                    legsHtml += '<span class="trip-leg-badge" style="background:' + color + ';">' + escapeHtml(leg.routeId) + '</span>';
+                    // Use scheduled board time if available, otherwise use running clock
+                    const boardDate = gtfsTimeToDate(leg.boardTime) || clock;
+                    const alightDate = gtfsTimeToDate(leg.alightTime);
+                    // Wait time between walk arrival and bus departure
+                    if (boardDate > clock) {
+                        clock = boardDate;
+                    }
+                    detailHtml += '🚏 <b>' + formatTime(boardDate) + '</b> — Board <b>' + escapeHtml(leg.routeId) + '</b> at ' + escapeHtml(leg.boardStop.name || 'stop') + ' · ' + escapeHtml(leg.numStops || '?') + ' stops<br>';
+                    if (alightDate) {
+                        clock = alightDate;
+                        detailHtml += '🚏 <b>' + formatTime(alightDate) + '</b> — Get off at <b>' + escapeHtml(leg.alightStop.name || 'stop') + '</b><br>';
+                    }
+                }
+            });
+
+            const departAt = formatTime(leaveTime || nowDate);
+            const arriveAt = formatTime(clock);
+
+            html += '<div class="trip-option' + (idx === selectedTripIdx ? ' selected' : '') + '" data-trip-idx="' + idx + '">' +
+                '<div class="trip-option-header">' +
+                '<div class="trip-option-time">' + formatMinutes(opt.totalTime) + ' <span style="font-weight:400;font-size:0.72rem;color:var(--text-muted);">' + departAt + ' → ' + arriveAt + '</span></div>' +
+                '<div class="trip-option-label">' + (opt.label || '') + '</div>' +
+                '</div>' +
+                '<div class="trip-option-legs">' + legsHtml + '</div>' +
+                '<div class="trip-option-details">' + detailHtml + '</div>' +
+                '</div>';
+        });
+
+        html += '<div class="trip-show-all"><label><input type="checkbox" id="trip-show-all-toggle"> Show all buses on route</label></div>';
+
+        tripResults.innerHTML = html;
+        tripResults.style.display = '';
+
+        tripResults.querySelectorAll('.trip-option').forEach(function (el) {
+            el.addEventListener('click', function () {
+                selectTripOption(parseInt(el.dataset.tripIdx, 10));
+            });
+        });
+
+        const refreshLink = document.getElementById('trip-refresh-link');
+        if (refreshLink) {
+            refreshLink.addEventListener('click', function (e) {
+                e.stopPropagation();
+                computeTrip();
+            });
+        }
+
+        const editLink = document.getElementById('trip-edit-link');
+        if (editLink) {
+            editLink.addEventListener('click', function (e) {
+                e.stopPropagation();
+                tripResults.style.display = 'none';
+                tripInputsEl.style.display = '';
+                tripDestInput.focus();
+            });
+        }
+
+        const showAllToggle = document.getElementById('trip-show-all-toggle');
+        if (showAllToggle) {
+            showAllToggle.addEventListener('change', function () {
+                fetchTripBuses(showAllToggle.checked);
+            });
+        }
+    }
+
+    async function selectTripOption(idx) {
+        selectedTripIdx = idx;
+        tripResults.querySelectorAll('.trip-option').forEach(function (el, i) {
+            el.classList.toggle('selected', i === idx);
+        });
+
+        const opt = tripOptions[idx];
+        if (!opt) return;
+
+        const enrichedLegs = await Promise.all(opt.legs.map(async function (rawLeg) {
+            const leg = Object.assign({}, rawLeg);
+            if (leg.type === 'walk' && leg.from && leg.to) {
+                try {
+                    const walkRes = await fetch('/api/maps/walk-route?originLat=' + leg.from.lat +
+                        '&originLng=' + leg.from.lng + '&destLat=' + leg.to.lat + '&destLng=' + leg.to.lng, { headers: { 'X-Azure-Maps-Proxy': '1' } });
+                    const walkData = await walkRes.json();
+                    if (walkData.points && walkData.points.length) {
+                        leg.walkPath = walkData.points;
+                        leg.distanceMeters = walkData.distanceMeters;
+                        leg.durationSeconds = walkData.durationSeconds;
+                    }
+                } catch (e) { console.error('Walk route fetch failed:', e); }
+            } else if (leg.type === 'bus' && leg.tripId) {
+                try {
+                    const shapeRes = await fetch('/api/shape/' + agencySelect.value + '/' + leg.tripId);
+                    const shapeData = await shapeRes.json();
+                    if (shapeData.rows && shapeData.rows.length) {
+                        const sorted = shapeData.rows
+                            .sort(function (a, b) { return a.pt_sequence - b.pt_sequence; })
+                            .map(function (p) { return { lat: p.pt_lat, lon: p.pt_lon }; });
+                        // Trim shape to just the segment between board and alight stops
+                        const boardLat = leg.boardStop.lat, boardLng = leg.boardStop.lng;
+                        const alightLat = leg.alightStop.lat, alightLng = leg.alightStop.lng;
+                        let boardIdx = 0, alightIdx = sorted.length - 1;
+                        let minBoardDist = Infinity, minAlightDist = Infinity;
+                        for (let si = 0; si < sorted.length; si++) {
+                            const dBoard = haversineMeters(sorted[si].lat, sorted[si].lon, boardLat, boardLng);
+                            if (dBoard < minBoardDist) { minBoardDist = dBoard; boardIdx = si; }
+                            const dAlight = haversineMeters(sorted[si].lat, sorted[si].lon, alightLat, alightLng);
+                            if (dAlight < minAlightDist) { minAlightDist = dAlight; alightIdx = si; }
+                        }
+                        if (boardIdx > alightIdx) { const tmp = boardIdx; boardIdx = alightIdx; alightIdx = tmp; }
+                        leg.shapePath = sorted.slice(boardIdx, alightIdx + 1);
+                        // Approach path: route start → boarding stop (shows bus coming towards you)
+                        if (boardIdx > 0) {
+                            leg.approachPath = sorted.slice(0, boardIdx + 1);
+                        }
+                    }
+                } catch (e) { console.error('Shape fetch failed:', e); }
+            }
+            return leg;
+        }));
+
+        lastEnrichedLegs = enrichedLegs;
+        // Clear stale bus markers immediately, then fetch correct ones
+        mapAdapter.showTripBuses([], []);
+        fetchTripBuses(document.getElementById('trip-show-all-toggle')?.checked || false);
+    }
+
+    async function fetchTripBuses(showAll) {
+        const opt = tripOptions[selectedTripIdx];
+        if (!opt) return;
+
+        const busLegs = opt.legs.filter(function (l) { return l.type === 'bus'; });
+        const agencyId = agencySelect.value;
+
+        // Fetch ALL live vehicles for each route involved
+        const routeIds = [...new Set(busLegs.map(function (l) { return l.routeId; }))];
+        const allByRoute = {};
+        await Promise.all(routeIds.map(async function (routeId) {
+            try {
+                const res = await fetch('/live/' + agencyId + '/' + routeId);
+                allByRoute[routeId] = await res.json();
+            } catch (e) {
+                console.error('Live fetch failed for route', routeId, e);
+                allByRoute[routeId] = [];
+            }
+        }));
+
+        // Pick the best bus per leg: exact vehicleId match → closest to boarding stop
+        // Also tag each leg with hasLiveBus for approach path rendering
+        const pinnedIds = [];
+        busLegs.forEach(function (leg) {
+            const vehicles = allByRoute[leg.routeId] || [];
+            leg.hasLiveBus = vehicles.length > 0;
+            if (!vehicles.length) return;
+            // Try exact match
+            if (leg.vehicleId) {
+                const exact = vehicles.find(function (v) { return v.vehicle_id === leg.vehicleId; });
+                if (exact) { pinnedIds.push(exact.vehicle_id); return; }
+            }
+            // Fallback: closest bus to board stop on this route
+            const bLat = leg.boardStop && leg.boardStop.lat;
+            const bLng = leg.boardStop && (leg.boardStop.lng != null ? leg.boardStop.lng : leg.boardStop.lon);
+            if (bLat != null && bLng != null) {
+                let closest = vehicles[0], closestDist = Infinity;
+                for (const v of vehicles) {
+                    if (v.lat == null || v.lon == null) continue;
+                    const d = haversineMeters(bLat, bLng, v.lat, v.lon);
+                    if (d < closestDist) { closestDist = d; closest = v; }
+                }
+                if (closest) pinnedIds.push(closest.vehicle_id);
+            } else {
+                // No coordinates — just pin the first bus on the route
+                pinnedIds.push(vehicles[0].vehicle_id);
+            }
+        });
+
+        // Build final vehicle list
+        let displayVehicles;
+        if (showAll) {
+            // Show all buses on all involved routes
+            displayVehicles = routeIds.flatMap(function (rid) { return allByRoute[rid] || []; });
+        } else {
+            // Show only the pinned buses (one per leg)
+            const pinnedSet = new Set(pinnedIds);
+            displayVehicles = routeIds.flatMap(function (rid) { return allByRoute[rid] || []; })
+                .filter(function (v) { return pinnedSet.has(v.vehicle_id); });
+        }
+
+        // Redraw trip plan now that hasLiveBus flags are set (controls approach path visibility)
+        if (lastEnrichedLegs) {
+            // Copy hasLiveBus from busLegs back into the enriched legs
+            let bi = 0;
+            lastEnrichedLegs.forEach(function (leg) {
+                if (leg.type === 'bus') {
+                    leg.hasLiveBus = busLegs[bi] ? busLegs[bi].hasLiveBus : false;
+                    bi++;
+                }
+            });
+            mapAdapter.drawTripPlan(lastEnrichedLegs);
+        }
+
+        mapAdapter.showTripBuses(displayVehicles, pinnedIds);
+
+        // Tag trip options as "scheduled" if any bus leg has no live bus
+        if (tripOptions) {
+            tripOptions.forEach(function (opt, idx) {
+                const optBusLegs = opt.legs.filter(function (l) { return l.type === 'bus'; });
+                const allLive = optBusLegs.every(function (l) { return allByRoute[l.routeId] && allByRoute[l.routeId].length > 0; });
+                const labelEl = tripResults.querySelectorAll('.trip-option-label')[idx];
+                if (labelEl && !allLive) {
+                    if (!labelEl.textContent.includes('(scheduled)')) {
+                        labelEl.textContent = labelEl.textContent + ' (scheduled)';
+                    }
+                    labelEl.closest('.trip-option')?.classList.add('scheduled');
+                }
+            });
+        }
+    }
 
     /* ── Fetch live vehicles for current selection ── */
     function fetchLive() {
@@ -542,6 +1089,7 @@
             agencySelect.disabled = false;
             updateDetails(agencySelect.value);
             loadRoutes(agencySelect.value, /* restoreRoute */ true);
+            showTripBtn();
         })
         .catch(err => {
             console.error('Agencies fetch failed:', err);

@@ -157,3 +157,40 @@ CREATE TABLE IF NOT EXISTS public.stop_time (
     CONSTRAINT fk_trip   FOREIGN KEY (agency_id, trip_id) REFERENCES public.trip (agency_id, id) ON DELETE CASCADE,
     CONSTRAINT fk_stop   FOREIGN KEY (agency_id, stop_id) REFERENCES public.stop (agency_id, id) ON DELETE CASCADE
 );
+
+-- GTFS calendar: which days each service_id operates
+CREATE TABLE IF NOT EXISTS public.calendar (
+    agency_id       UUID            NOT NULL,
+    service_id      VARCHAR(45)     NOT NULL,
+    monday          VARCHAR(1)      NOT NULL DEFAULT '0',
+    tuesday         VARCHAR(1)      NOT NULL DEFAULT '0',
+    wednesday       VARCHAR(1)      NOT NULL DEFAULT '0',
+    thursday        VARCHAR(1)      NOT NULL DEFAULT '0',
+    friday          VARCHAR(1)      NOT NULL DEFAULT '0',
+    saturday        VARCHAR(1)      NOT NULL DEFAULT '0',
+    sunday          VARCHAR(1)      NOT NULL DEFAULT '0',
+    start_date      VARCHAR(10),
+    end_date        VARCHAR(10),
+    PRIMARY KEY (agency_id, service_id),
+    CONSTRAINT fk_agency FOREIGN KEY (agency_id) REFERENCES public.agency (id) ON DELETE CASCADE
+);
+
+-- GTFS calendar_dates: exceptions (added/removed service on specific dates)
+CREATE TABLE IF NOT EXISTS public.calendar_date (
+    agency_id       UUID            NOT NULL,
+    service_id      VARCHAR(45)     NOT NULL,
+    date            VARCHAR(10)     NOT NULL,
+    exception_type  VARCHAR(2)      NOT NULL,
+    PRIMARY KEY (agency_id, service_id, date),
+    CONSTRAINT fk_agency FOREIGN KEY (agency_id) REFERENCES public.agency (id) ON DELETE CASCADE
+);
+
+-- ── Indexes for trip planner performance ──
+CREATE INDEX IF NOT EXISTS idx_stop_agency_lat_lon    ON public.stop (agency_id, lat, lon);
+CREATE INDEX IF NOT EXISTS idx_stop_time_stop         ON public.stop_time (agency_id, stop_id);
+CREATE INDEX IF NOT EXISTS idx_trip_route             ON public.trip (agency_id, route_id);
+CREATE INDEX IF NOT EXISTS idx_trip_service            ON public.trip (agency_id, service_id);
+CREATE INDEX IF NOT EXISTS idx_live_vp_route          ON public.live_vehicle_position (agency_id, route_id);
+CREATE INDEX IF NOT EXISTS idx_live_vp_trip           ON public.live_vehicle_position (agency_id, route_id, trip_id);
+CREATE INDEX IF NOT EXISTS idx_shape_point_shape      ON public.shape_point (agency_id, id);
+CREATE INDEX IF NOT EXISTS idx_calendar_date_lookup   ON public.calendar_date (agency_id, date);

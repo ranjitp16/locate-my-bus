@@ -191,7 +191,7 @@ const handleWriteFromShapes = async (client, fileName, tableName, decompressed, 
     console.log("COMPLETED SHAPES WRITES: " + static_feed_url);
 };
 
-const getFileContents = async (client, decompressed, fileName, tableName, headerSalt, static_feed_url) => {
+const getFileContents = async (client, decompressed, fileName, tableName, headerSalt, static_feed_url, colMap) => {
     const file = decompressed.files.find(f => f.path === fileName);
     const content = await file.buffer();
     const lines = content.toString().replace(/^\uFEFF/, '').split('\n').filter(l => l.trim());
@@ -211,10 +211,19 @@ const getFileContents = async (client, decompressed, fileName, tableName, header
     const sanitized_table_headers = rows.filter(r => r.column_name !== 'id' && r.column_name !== 'rt_feed_url' && r.column_name !== 'static_feed_url' && r.column_name !== 'api_key_in_header');
 
     // Validate that the feed contains all expected columns (except id, rt_feed_url, static_feed_url)
+    // GTFS spec uses different names for some columns (e.g. stop_desc) than the DB (description),
+    // so check the mapped GTFS name as well when colMap is provided
+    const reverseMap = {};
+    if (colMap) {
+        for (const [gtfsCol, dbCol] of Object.entries(colMap)) {
+            reverseMap[dbCol] = gtfsCol;
+        }
+    }
     sanitized_table_headers.forEach(h => {
         if (tableName !== "agency" && h.column_name === 'agency_id') return;
         const expectedHeader = `${headerSalt}_${h.column_name}`;
-        if (!header.includes(expectedHeader)) {
+        const altHeader = reverseMap[h.column_name] ? `${headerSalt}_${reverseMap[h.column_name]}` : null;
+        if (!header.includes(expectedHeader) && (!altHeader || !header.includes(altHeader))) {
             console.log(`File ${fileName} in the GTFS feed ${static_feed_url} is missing column: ${h.column_name} for table ${tableName}`);
         }
     });
@@ -258,10 +267,10 @@ const getFileContentsFromTrip = async (client, decompressed, fileName, tableName
 const handleWriteFromStops = async (client, fileName, tableName, decompressed, listOfAgencyGuids, static_feed_url) => {
     console.log("INITIATING STOP WRITES: " + static_feed_url);
 
-    var { lines, header, sanitized_table_headers_no_id } = await getFileContents(client, decompressed, fileName, tableName, tableName, static_feed_url);
-
     // GTFS stop_desc maps to DB column "description"
     const STOP_COL_MAP = { 'desc': 'description' };
+
+    var { lines, header, sanitized_table_headers_no_id } = await getFileContents(client, decompressed, fileName, tableName, tableName, static_feed_url, STOP_COL_MAP);
     const mapCol = (col) => STOP_COL_MAP[col] || col;
 
     const columns = [...header.map(h => mapCol(h.replace(`${tableName}_`, ''))).filter(h => sanitized_table_headers_no_id.some(sh => sh.column_name === h))];
@@ -339,4 +348,38 @@ const handleWriteFromStopTimes = async (client, fileName, tableName, decompresse
     console.log("COMPLETED STOP_TIME WRITES: " + static_feed_url);
 };
 
-module.exports = { handleWriteFromAgency, handleWriteFromRoutes, handleWriteFromShapes, handleWriteFromTrip, handleWriteFromStops, handleWriteFromStopTimes };
+const handleWriteFromCalendar = async (client, fileName, tableName, decompressed, listOfAgencyGuids, static_feed_url) => {
+    const file = decompressed.files.find(f => f.path === fileName);
+    if (!file) {
+        console.log(`${fileName} not found in GTFS feed ${static_feed_url} — skipping (optional file)`);
+        return;
+    }
+    console.log("INITIATING CALENDAR WRITES: " + static_feed_url);
+
+    let { lines, header, sanitized_table_headers_no_id } = await getFileContentsFromTrip(client, decompressed, fileName, tableName, static_feed_url);
+
+    const columns = [...header.filter(h => sanitized_table_headers_no_id.some(sh => sh.column_name === h))];
+    columns.push("agency_id");
+
+    for (const { uuid } of listOfAgencyGuids) {
+        const agency_id = uuid;
+        const rows = [];
+
+        for (const line of lines) {
+            const values = parseCsvLine(line);
+            const params = [];
+            header.forEach((h, i) => {
+                if (sanitized_table_headers_no_id.some(sh => sh.column_name === h)) {
+                    params.push(values[i] || null);
+                }
+            });
+            params.push(agency_id);
+            rows.push(params);
+        }
+
+        if (rows.length > 0) await bulkInsert(client, tableName, columns, rows);
+    }
+    console.log("COMPLETED CALENDAR WRITES: " + static_feed_url);
+};
+
+module.exports = { handleWriteFromAgency, handleWriteFromRoutes, handleWriteFromShapes, handleWriteFromTrip, handleWriteFromStops, handleWriteFromStopTimes, handleWriteFromCalendar };
