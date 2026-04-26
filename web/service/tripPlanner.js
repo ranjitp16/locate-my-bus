@@ -603,6 +603,7 @@ async function planTrip(pool, agencyId, originLat, originLng, destLat, destLng) 
     if (!agencyRows.length) throw new Error('Agency not found');
     const timezone = agencyRows[0].timezone || 'America/Halifax';
     const nowSecs = nowAsSeconds(timezone);
+    const liveRouteIds = await repo.getLiveRouteIds(pool, agencyId);
 
     const origin = { lat: originLat, lng: originLng };
     const dest = { lat: destLat, lng: destLng };
@@ -639,20 +640,31 @@ async function planTrip(pool, agencyId, originLat, originLng, destLat, destLng) 
         return { options: [], error: 'No routes found for this trip' };
     }
 
-    // Step 5: Sort, deduplicate, take top 3
+    // Step 5: Annotate live status, sort, deduplicate, prefer live routes
+    for (const r of allResults) {
+        const busLegs = r.legs.filter(l => l.type === 'bus');
+        r.isLive = busLegs.length > 0 && busLegs.every(l => liveRouteIds.has(l.routeId));
+    }
+
     allResults.sort((a, b) => a.totalTime - b.totalTime);
 
     const seen = new Set();
-    const unique = [];
+    const liveResults = [];
+    const scheduledResults = [];
     for (const r of allResults) {
         const key = r.legs.filter(l => l.type === 'bus').map(l => l.routeId).join('|');
-        if (!seen.has(key)) {
-            seen.add(key);
-            unique.push(r);
-        }
+        if (seen.has(key)) continue;
+        seen.add(key);
+        if (r.isLive) liveResults.push(r);
+        else scheduledResults.push(r);
     }
 
-    const top3 = unique.slice(0, 3);
+    // Prefer live routes; fill remaining slots (up to 3 total) with scheduled
+    const top3 = [...liveResults.slice(0, 3)];
+    for (const r of scheduledResults) {
+        if (top3.length >= 3) break;
+        top3.push(r);
+    }
 
     // Step 6: Assign labels
     if (top3.length > 0) top3[0].label = 'Best';
@@ -663,6 +675,9 @@ async function planTrip(pool, agencyId, originLat, originLng, destLat, destLng) 
         else if (opt.totalWalkTime < top3[0].totalWalkTime) opt.label = 'Less walking';
         else if (opt.totalWalkTime > top3[0].totalWalkTime) opt.label = 'More walking';
         else opt.label = 'Alternative';
+    }
+    for (const opt of top3) {
+        if (!opt.isLive) opt.label = (opt.label || '') + ' (scheduled)';
     }
 
     // Step 7: Enrich bus legs with route info, stop count, and live vehicle

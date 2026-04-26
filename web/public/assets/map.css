@@ -501,6 +501,8 @@ body { overflow: hidden; }
     font-size: 0.72rem;
     color: var(--text-muted);
 }
+.trip-option.scheduled { opacity: 0.7; }
+.trip-option.scheduled .trip-option-label { color: #e67e22; }
 
 .trip-option-legs {
     display: flex;

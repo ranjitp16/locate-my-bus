@@ -655,7 +655,7 @@
             const departAt = formatTime(nowDate);
             const arriveAt = formatTime(clock);
 
-            html += '<div class="trip-option' + (idx === selectedTripIdx ? ' selected' : '') + '" data-trip-idx="' + idx + '">' +
+            html += '<div class="trip-option' + (idx === selectedTripIdx ? ' selected' : '') + (opt.isLive === false ? ' scheduled' : '') + '" data-trip-idx="' + idx + '">' +
                 '<div class="trip-option-header">' +
                 '<div class="trip-option-time">' + formatMinutes(opt.totalTime) + ' <span style="font-weight:400;font-size:0.72rem;color:var(--text-muted);">' + departAt + ' → ' + arriveAt + '</span></div>' +
                 '<div class="trip-option-label">' + (opt.label || '') + '</div>' +
