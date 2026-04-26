@@ -180,19 +180,27 @@ async function findOneTransferRoutes(pool, agencyId, origin, dest, stopsNearA, s
 
     const results = [];
 
-    // Single batch query for ALL transfer stops across all R1×R2 pairs
+    // One query: fetch all stops per route, then compute transfer stops as set intersections in memory
     const allCandidateRoutes = [...new Set([...r1Routes, ...r2Routes])];
-    const xferMap = await repo.getBatchTransferStops(pool, agencyId, allCandidateRoutes);
+    const stopsByRoute = await repo.getStopsByRoutes(pool, agencyId, allCandidateRoutes);
 
     for (const r1 of r1Routes) {
         if (results.length >= MAX_ONE_XFER_RESULTS) break;
         const r1ByTrip = tripsByRoute[r1];
+        const r1Stops = stopsByRoute.get(r1);
+        if (!r1Stops) continue;
+
         for (const r2 of r2Routes) {
             if (results.length >= MAX_ONE_XFER_RESULTS) break;
             if (r1 === r2) continue;
 
-            const cacheKey = r1 < r2 ? r1 + '|' + r2 : r2 + '|' + r1;
-            const transferStops = xferMap.get(cacheKey) || [];
+            // Compute transfer stops as intersection of stops served by R1 and R2
+            const r2Stops = stopsByRoute.get(r2);
+            if (!r2Stops) continue;
+            const transferStops = [];
+            for (const [stopId, stop] of r1Stops) {
+                if (r2Stops.has(stopId)) transferStops.push(stop);
+            }
             if (!transferStops.length) continue;
 
             const r2ByTrip = tripsByRoute[r2];

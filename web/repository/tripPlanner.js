@@ -50,35 +50,25 @@ async function getTransferStops(pool, agencyId, routeId1, routeId2) {
 }
 
 /**
- * Batch version: finds all shared stops across multiple route pairs in ONE query.
- * Returns a Map keyed by "r1|r2" (sorted) → array of { stop_id, name, lat, lon }.
+ * Fetches all stops served by the given routes. Returns a Map of routeId → Set of stop objects.
+ * Used to compute transfer stops as set intersections in memory (no self-join).
  */
-async function getBatchTransferStops(pool, agencyId, routeIds) {
+async function getStopsByRoutes(pool, agencyId, routeIds) {
     if (!routeIds.length) return new Map();
     const { rows } = await pool.query(
-        `SELECT DISTINCT t1.route_id AS route1, t2.route_id AS route2,
-                st1.stop_id, s.name, s.lat, s.lon
-         FROM public.stop_time st1
-         JOIN public.trip t1 ON t1.agency_id = st1.agency_id AND t1.id = st1.trip_id
-         JOIN public.stop_time st2 ON st2.agency_id = st1.agency_id AND st2.stop_id = st1.stop_id
-         JOIN public.trip t2 ON t2.agency_id = st2.agency_id AND t2.id = st2.trip_id
-         JOIN public.stop s ON s.agency_id = st1.agency_id AND s.id = st1.stop_id
-         WHERE st1.agency_id = $1
-           AND t1.route_id = ANY($2)
-           AND t2.route_id = ANY($2)
-           AND t1.route_id != t2.route_id
+        `SELECT DISTINCT t.route_id, st.stop_id, s.name, s.lat, s.lon
+         FROM public.stop_time st
+         JOIN public.trip t ON t.agency_id = st.agency_id AND t.id = st.trip_id
+         JOIN public.stop s ON s.agency_id = st.agency_id AND s.id = st.stop_id
+         WHERE st.agency_id = $1
+           AND t.route_id = ANY($2)
            AND s.lat IS NOT NULL AND s.lon IS NOT NULL`,
         [agencyId, routeIds]
     );
     const map = new Map();
     for (const r of rows) {
-        const key = r.route1 < r.route2 ? r.route1 + '|' + r.route2 : r.route2 + '|' + r.route1;
-        if (!map.has(key)) map.set(key, []);
-        // Deduplicate stops within each pair
-        const arr = map.get(key);
-        if (!arr.some(s => s.stop_id === r.stop_id)) {
-            arr.push({ stop_id: r.stop_id, name: r.name, lat: r.lat, lon: r.lon });
-        }
+        if (!map.has(r.route_id)) map.set(r.route_id, new Map());
+        map.get(r.route_id).set(r.stop_id, { stop_id: r.stop_id, name: r.name, lat: r.lat, lon: r.lon });
     }
     return map;
 }
@@ -122,7 +112,7 @@ module.exports = {
     getStopsNearPoint,
     getRouteStopIndex,
     getTransferStops,
-    getBatchTransferStops,
+    getStopsByRoutes,
     getRouteInfo,
     getLiveVehicle,
     getTripStopTimes,
