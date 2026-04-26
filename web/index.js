@@ -526,6 +526,9 @@ app.get('/api/trip-plan/:agency_id', async (req, res) => {
 
     const oLat = parseFloat(originLat), oLng = parseFloat(originLng), dLat = parseFloat(destLat), dLng = parseFloat(destLng);
     if ([oLat, oLng, dLat, dLng].some(isNaN)) return res.status(400).json({ error: 'Invalid coordinates' });
+    if (Math.abs(oLat) > 90 || Math.abs(dLat) > 90 || Math.abs(oLng) > 180 || Math.abs(dLng) > 180) {
+        return res.status(400).json({ error: 'Coordinates out of range' });
+    }
 
     try {
         const result = await planTrip(
