@@ -887,6 +887,14 @@
                     } else if (leg.type === 'bus' && leg.shapePath && leg.shapePath.length >= 2) {
                         var color = leg.routeColor || palette[busIndex % palette.length];
                         busIndex++;
+
+                        // Approach path: route start → boarding stop (faint dashed)
+                        if (leg.approachPath && leg.approachPath.length >= 2) {
+                            var approachCoords = leg.approachPath.map(function (p) { return [p.lon, p.lat]; });
+                            _tripSvgs.push(_createColoredSvg(approachCoords, color, true));
+                        }
+
+                        // Main ride segment: boarding → alighting (solid)
                         var busCoords = leg.shapePath.map(function (p) { return [p.lon, p.lat]; });
                         _tripSvgs.push(_createColoredSvg(busCoords, color, false));
 

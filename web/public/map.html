@@ -783,6 +783,10 @@
                         }
                         if (boardIdx > alightIdx) { const tmp = boardIdx; boardIdx = alightIdx; alightIdx = tmp; }
                         leg.shapePath = sorted.slice(boardIdx, alightIdx + 1);
+                        // Approach path: route start → boarding stop (shows bus coming towards you)
+                        if (boardIdx > 0) {
+                            leg.approachPath = sorted.slice(0, boardIdx + 1);
+                        }
                     }
                 } catch (e) { console.error('Shape fetch failed:', e); }
             }
