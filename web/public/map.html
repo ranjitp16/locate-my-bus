@@ -609,7 +609,7 @@
     function renderTripResults() {
         let html = '<div class="trip-summary-row"><span>📍 My Location → 🏁 ' +
             (tripDestInput.value.length > 25 ? tripDestInput.value.substring(0, 25) + '…' : tripDestInput.value) +
-            '</span><a id="trip-edit-link">Edit</a></div>';
+            '</span><span><a id="trip-refresh-link" title="Refresh results">🔄</a> <a id="trip-edit-link">Edit</a></span></div>';
 
         tripOptions.forEach(function (opt, idx) {
             let legsHtml = '';
@@ -675,6 +675,14 @@
                 selectTripOption(parseInt(el.dataset.tripIdx, 10));
             });
         });
+
+        const refreshLink = document.getElementById('trip-refresh-link');
+        if (refreshLink) {
+            refreshLink.addEventListener('click', function (e) {
+                e.stopPropagation();
+                computeTrip();
+            });
+        }
 
         const editLink = document.getElementById('trip-edit-link');
         if (editLink) {
