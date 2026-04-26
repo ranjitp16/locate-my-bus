@@ -420,8 +420,17 @@
     const geocodeDropdown = document.getElementById('geocode-dropdown');
     const controlsEl = document.getElementById('controls');
 
+    const TRIP_MAX_DISTANCE = 75000; // 75km — hide trip button if user is farther from agency area
+
     function showTripBtn() {
-        tripBtn.style.display = (userLat !== null && agencySelect.value) ? '' : 'none';
+        if (userLat === null || !agencySelect.value) {
+            tripBtn.style.display = 'none';
+            return;
+        }
+        // Check if user is within range of the map view (which centers on the agency's city)
+        const center = mapAdapter.getCenter();
+        const dist = haversineMeters(userLat, userLng, center.lat, center.lng);
+        tripBtn.style.display = dist <= TRIP_MAX_DISTANCE ? '' : 'none';
     }
 
     function enterTripMode() {
@@ -488,7 +497,7 @@
 
     async function geocodeAddress(query) {
         try {
-            const res = await fetch('/api/azure-maps/search/address/json?api-version=1.0&query=' + encodeURIComponent(query) + '&limit=5', {
+            const res = await fetch('/api/azure-maps/search/address/json?api-version=1.0&query=' + encodeURIComponent(query) + '&limit=5&lat=' + userLat + '&lon=' + userLng + '&radius=75000', {
                 headers: { 'X-Azure-Maps-Proxy': '1' }
             });
             const data = await res.json();
