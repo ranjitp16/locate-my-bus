@@ -444,15 +444,21 @@ app.get('/api/trip-plan/:agency_id', async (req, res) => {
     const { agency_id } = req.params;
     const { originLat, originLng, destLat, destLng } = req.query;
 
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!UUID_RE.test(agency_id)) return res.status(400).json({ error: 'Invalid agency_id' });
+
     if (!originLat || !originLng || !destLat || !destLng) {
         return res.status(400).json({ error: 'Missing required query params: originLat, originLng, destLat, destLng' });
     }
 
+    const oLat = parseFloat(originLat), oLng = parseFloat(originLng), dLat = parseFloat(destLat), dLng = parseFloat(destLng);
+    if ([oLat, oLng, dLat, dLng].some(isNaN)) return res.status(400).json({ error: 'Invalid coordinates' });
+
     try {
         const result = await planTrip(
             pool, agency_id,
-            parseFloat(originLat), parseFloat(originLng),
-            parseFloat(destLat), parseFloat(destLng)
+            oLat, oLng,
+            dLat, dLng
         );
         res.json(result);
     } catch (err) {

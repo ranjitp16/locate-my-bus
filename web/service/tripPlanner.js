@@ -55,6 +55,8 @@ async function findNearbyStops(pool, agencyId, lat, lng) {
 async function findDirectRoutes(pool, agencyId, origin, dest, stopsNearA, stopsNearB, routeStopIndex, nowSecs) {
     const nearAIds = new Set(stopsNearA.map(s => s.id));
     const nearBIds = new Set(stopsNearB.map(s => s.id));
+    const stopAMap = new Map(stopsNearA.map(s => [s.id, s]));
+    const stopBMap = new Map(stopsNearB.map(s => [s.id, s]));
 
     const byRoute = {};
     for (const row of routeStopIndex) {
@@ -90,8 +92,8 @@ async function findDirectRoutes(pool, agencyId, origin, dest, stopsNearA, stopsN
                     if (arrSecs === null || isNaN(arrSecs)) continue;
 
                     // DB rows use .lon; output objects use .lng key per API spec
-                    const boardStop = stopsNearA.find(s => s.id === board.stop_id);
-                    const alightStop = stopsNearB.find(s => s.id === alight.stop_id);
+                    const boardStop = stopAMap.get(board.stop_id);
+                    const alightStop = stopBMap.get(alight.stop_id);
                     // Guard: stop may be missing coords (filtered out of nearby query)
                     if (!boardStop || !alightStop) continue;
 
@@ -151,6 +153,8 @@ async function findDirectRoutes(pool, agencyId, origin, dest, stopsNearA, stopsN
 async function findOneTransferRoutes(pool, agencyId, origin, dest, stopsNearA, stopsNearB, routeStopIndex, nowSecs, deadline) {
     const nearAIds = new Set(stopsNearA.map(s => s.id));
     const nearBIds = new Set(stopsNearB.map(s => s.id));
+    const stopAMap = new Map(stopsNearA.map(s => [s.id, s]));
+    const stopBMap = new Map(stopsNearB.map(s => [s.id, s]));
 
     // Group routeStopIndex by route → trip → entries
     const byRoute = {};
@@ -221,7 +225,7 @@ async function findOneTransferRoutes(pool, agencyId, origin, dest, stopsNearA, s
                         const depSecs = gtfsTimeToSeconds(board.departure_time);
                         if (depSecs === null || isNaN(depSecs) || depSecs < nowSecs) continue;
 
-                        const boardStop = stopsNearA.find(s => s.id === board.stop_id);
+                        const boardStop = stopAMap.get(board.stop_id);
                         if (!boardStop) continue;
 
                         const distToBoard = haversineMeters(origin.lat, origin.lng, boardStop.lat, boardStop.lon) * MANHATTAN_FACTOR;
@@ -254,7 +258,7 @@ async function findOneTransferRoutes(pool, agencyId, origin, dest, stopsNearA, s
                                 const arrSecs = gtfsTimeToSeconds(alight.arrival_time);
                                 if (arrSecs === null || isNaN(arrSecs)) continue;
 
-                                const alightStop = stopsNearB.find(s => s.id === alight.stop_id);
+                                const alightStop = stopBMap.get(alight.stop_id);
                                 if (!alightStop) continue;
 
                                 const distFromAlight = haversineMeters(alightStop.lat, alightStop.lon, dest.lat, dest.lng) * MANHATTAN_FACTOR;
@@ -324,6 +328,7 @@ async function findOneTransferRoutes(pool, agencyId, origin, dest, stopsNearA, s
 
 async function findTwoTransferRoutes(pool, agencyId, origin, dest, stopsNearA, stopsNearB, routeStopIndex, nowSecs, bestSoFar, deadline) {
     const nearAIds = new Set(stopsNearA.map(s => s.id));
+    const stopAMap = new Map(stopsNearA.map(s => [s.id, s]));
     let iterations = 0;
     // Cache getTripStopTimes to avoid repeated fetches for the same trip
     const stopTimesCache = new Map();
@@ -372,7 +377,7 @@ async function findTwoTransferRoutes(pool, agencyId, origin, dest, stopsNearA, s
                 const depSecs = gtfsTimeToSeconds(board.departure_time);
                 if (depSecs === null || isNaN(depSecs) || depSecs < nowSecs) continue;
 
-                const boardStop = stopsNearA.find(s => s.id === board.stop_id);
+                const boardStop = stopAMap.get(board.stop_id);
                 if (!boardStop) continue;
 
                 const distToBoard = haversineMeters(origin.lat, origin.lng, boardStop.lat, boardStop.lon) * MANHATTAN_FACTOR;
@@ -701,29 +706,37 @@ async function planTrip(pool, agencyId, originLat, originLng, destLat, destLng) 
         else opt.label = 'Alternative';
     }
 
-    // Step 7: Enrich bus legs with route info, stop count, and live vehicle
+    // Step 7: Enrich bus legs with route info, stop count, and live vehicle (parallel)
+    const busLegsToEnrich = [];
     for (const opt of top3) {
         for (const leg of opt.legs) {
-            if (leg.type !== 'bus') continue;
+            if (leg.type === 'bus') busLegsToEnrich.push(leg);
+        }
+    }
 
-            const routeInfo = await repo.getRouteInfo(pool, agencyId, leg.routeId);
-            if (routeInfo) {
-                leg.routeName = routeInfo.long_name || routeInfo.short_name || leg.routeId;
-                leg.routeColor = routeInfo.color ? '#' + routeInfo.color.replace(/^#/, '') : null;
-            }
-
-            const numStopsResult = await pool.query(
+    const enrichResults = await Promise.all(busLegsToEnrich.map(async (leg) => {
+        const [routeInfo, numStopsResult, live] = await Promise.all([
+            repo.getRouteInfo(pool, agencyId, leg.routeId),
+            pool.query(
                 `SELECT COUNT(*)::int AS cnt FROM public.stop_time
                  WHERE agency_id = $1 AND trip_id = $2
                    AND stop_sequence::int >= $3 AND stop_sequence::int <= $4`,
                 [agencyId, leg.tripId, leg.boardSequence, leg.alightSequence]
-            );
-            leg.numStops = numStopsResult.rows[0]?.cnt || 0;
+            ),
+            repo.getLiveVehicle(pool, agencyId, leg.routeId, leg.tripId),
+        ]);
+        return { routeInfo, numStops: numStopsResult.rows[0]?.cnt || 0, vehicleId: live?.vehicle_id || null };
+    }));
 
-            const live = await repo.getLiveVehicle(pool, agencyId, leg.routeId, leg.tripId);
-            leg.vehicleId = live?.vehicle_id || null;
+    busLegsToEnrich.forEach((leg, i) => {
+        const { routeInfo, numStops, vehicleId } = enrichResults[i];
+        if (routeInfo) {
+            leg.routeName = routeInfo.long_name || routeInfo.short_name || leg.routeId;
+            leg.routeColor = routeInfo.color ? '#' + routeInfo.color.replace(/^#/, '') : null;
         }
-    }
+        leg.numStops = numStops;
+        leg.vehicleId = vehicleId;
+    });
 
     return { options: top3 };
 }

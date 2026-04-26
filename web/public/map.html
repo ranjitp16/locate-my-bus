@@ -198,6 +198,11 @@
         ageTimer = null;
     });
 
+    function escapeHtml(v) {
+        if (v == null) return '';
+        return String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
     function haversineMeters(lat1, lng1, lat2, lng2) {
         const R = 6371000;
         const toRad = x => x * Math.PI / 180;
@@ -619,8 +624,8 @@
         }
     }
 
-    // Matches the tripPalette in map-adapter-azure.js drawTripPlan
-    const TRIP_COLORS = ['#d84315', '#6a1b9a', '#00838f'];
+    // Shared palette exposed by map-adapter-azure.js
+    const TRIP_COLORS = mapAdapter.TRIP_COLORS;
 
     function formatMinutes(secs) {
         const m = Math.round(secs / 60);
@@ -643,8 +648,9 @@
     }
 
     function renderTripResults() {
+        const destDisplay = tripDestInput.value.length > 25 ? tripDestInput.value.substring(0, 25) + '…' : tripDestInput.value;
         let html = '<div class="trip-summary-row"><span>📍 My Location → 🏁 ' +
-            (tripDestInput.value.length > 25 ? tripDestInput.value.substring(0, 25) + '…' : tripDestInput.value) +
+            escapeHtml(destDisplay) +
             '</span><span><a id="trip-refresh-link" title="Refresh results">🔄</a> <a id="trip-edit-link">Edit</a></span></div>';
 
         tripOptions.forEach(function (opt, idx) {
@@ -677,9 +683,9 @@
                     clock = new Date(clock.getTime() + leg.durationSeconds * 1000);
                     const arriveAt = formatTime(clock);
                     if (li === 0) {
-                        detailHtml += '🚶 <b>' + leaveAt + '</b> — Leave, walk to <b>' + (leg.to.name || 'stop') + '</b> (' + leg.distanceMeters + 'm)<br>';
+                        detailHtml += '🚶 <b>' + leaveAt + '</b> — Leave, walk to <b>' + escapeHtml(leg.to.name || 'stop') + '</b> (' + escapeHtml(leg.distanceMeters) + 'm)<br>';
                     } else {
-                        detailHtml += '🚶 <b>' + leaveAt + '</b> — Walk to <b>' + (leg.to.name || 'destination') + '</b> (' + leg.distanceMeters + 'm)<br>';
+                        detailHtml += '🚶 <b>' + leaveAt + '</b> — Walk to <b>' + escapeHtml(leg.to.name || 'destination') + '</b> (' + escapeHtml(leg.distanceMeters) + 'm)<br>';
                     }
                     // If this is the last leg, show arrival time
                     if (li === opt.legs.length - 1) {
@@ -688,7 +694,7 @@
                 } else if (leg.type === 'bus') {
                     const color = TRIP_COLORS[busColorIdx % TRIP_COLORS.length];
                     busColorIdx++;
-                    legsHtml += '<span class="trip-leg-badge" style="background:' + color + ';">' + leg.routeId + '</span>';
+                    legsHtml += '<span class="trip-leg-badge" style="background:' + color + ';">' + escapeHtml(leg.routeId) + '</span>';
                     // Use scheduled board time if available, otherwise use running clock
                     const boardDate = gtfsTimeToDate(leg.boardTime) || clock;
                     const alightDate = gtfsTimeToDate(leg.alightTime);
@@ -696,10 +702,10 @@
                     if (boardDate > clock) {
                         clock = boardDate;
                     }
-                    detailHtml += '🚏 <b>' + formatTime(boardDate) + '</b> — Board <b>' + leg.routeId + '</b> at ' + (leg.boardStop.name || 'stop') + ' · ' + (leg.numStops || '?') + ' stops<br>';
+                    detailHtml += '🚏 <b>' + formatTime(boardDate) + '</b> — Board <b>' + escapeHtml(leg.routeId) + '</b> at ' + escapeHtml(leg.boardStop.name || 'stop') + ' · ' + escapeHtml(leg.numStops || '?') + ' stops<br>';
                     if (alightDate) {
                         clock = alightDate;
-                        detailHtml += '🚏 <b>' + formatTime(alightDate) + '</b> — Get off at <b>' + (leg.alightStop.name || 'stop') + '</b><br>';
+                        detailHtml += '🚏 <b>' + formatTime(alightDate) + '</b> — Get off at <b>' + escapeHtml(leg.alightStop.name || 'stop') + '</b><br>';
                     }
                 }
             });
@@ -816,7 +822,6 @@
         }));
 
         lastEnrichedLegs = enrichedLegs;
-        mapAdapter.drawTripPlan(enrichedLegs);
         // Clear stale bus markers immediately, then fetch correct ones
         mapAdapter.showTripBuses([], []);
         fetchTripBuses(document.getElementById('trip-show-all-toggle')?.checked || false);

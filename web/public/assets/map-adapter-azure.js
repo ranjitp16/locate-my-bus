@@ -333,7 +333,11 @@
 
     // ── Public API ──────────────────────────────────────────────────────────
 
+    var TRIP_COLORS = ['#d84315', '#6a1b9a', '#00838f'];
+
     window.mapAdapter = {
+
+        TRIP_COLORS: TRIP_COLORS,
 
         // ── Map lifecycle ───────────────────────────────────────────────────
 
@@ -892,8 +896,6 @@
             _whenReady(function () {
                 self.clearTripPlan();
 
-                // Distinct trip-leg palette — avoids common GTFS route colors (blue/red/green)
-                var tripPalette = ['#d84315', '#6a1b9a', '#00838f'];
                 var busIndex = 0;
 
                 legs.forEach(function (leg) {
@@ -901,7 +903,7 @@
                         var walkCoords = leg.walkPath.map(function (p) { return [p.lng, p.lat]; });
                         _tripSvgs.push(_createColoredSvg(walkCoords, '#2e7d32', true));
                     } else if (leg.type === 'bus' && leg.shapePath && leg.shapePath.length >= 2) {
-                        var color = tripPalette[busIndex % tripPalette.length];
+                        var color = TRIP_COLORS[busIndex % TRIP_COLORS.length];
                         busIndex++;
 
                         // Approach path: route start → boarding stop (only if live bus exists)

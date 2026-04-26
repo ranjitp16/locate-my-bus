@@ -32,23 +32,6 @@ async function getRouteStopIndex(pool, agencyId, stopIds) {
     return rows;
 }
 
-async function getTransferStops(pool, agencyId, routeId1, routeId2) {
-    const { rows } = await pool.query(
-        `SELECT DISTINCT st1.stop_id, s.name, s.lat, s.lon
-         FROM public.stop_time st1
-         JOIN public.trip t1 ON t1.agency_id = st1.agency_id AND t1.id = st1.trip_id
-         JOIN public.stop_time st2 ON st2.agency_id = st1.agency_id AND st2.stop_id = st1.stop_id
-         JOIN public.trip t2 ON t2.agency_id = st2.agency_id AND t2.id = st2.trip_id
-         JOIN public.stop s ON s.agency_id = st1.agency_id AND s.id = st1.stop_id
-         WHERE st1.agency_id = $1
-           AND t1.route_id = $2
-           AND t2.route_id = $3
-           AND s.lat IS NOT NULL AND s.lon IS NOT NULL`,
-        [agencyId, routeId1, routeId2]
-    );
-    return rows;
-}
-
 /**
  * Fetches all stops served by the given routes. Returns a Map of routeId → Set of stop objects.
  * Used to compute transfer stops as set intersections in memory (no self-join).
@@ -101,6 +84,7 @@ async function getLiveVehicle(pool, agencyId, routeId, tripId) {
 async function getActiveServiceIds(pool, agencyId, todayStr, dayOfWeek) {
     // dayOfWeek: 0=sunday..6=saturday; todayStr: 'YYYYMMDD'
     const dayCol = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'][dayOfWeek];
+    if (!dayCol) throw new Error('Invalid dayOfWeek: ' + dayOfWeek);
 
     // Base: services running today per calendar
     const { rows: calRows } = await pool.query(
@@ -143,7 +127,6 @@ async function getTripStopTimes(pool, agencyId, tripId) {
 module.exports = {
     getStopsNearPoint,
     getRouteStopIndex,
-    getTransferStops,
     getStopsByRoutes,
     getRouteInfo,
     getLiveVehicle,
