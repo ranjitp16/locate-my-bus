@@ -666,7 +666,7 @@ async function planTrip(pool, agencyId, originLat, originLng, destLat, destLng) 
     }
 
     // Step 5: Sort, deduplicate, build diverse top 3
-    allResults.sort((a, b) => a.totalTime - b.totalTime);
+    allResults.sort((a, b) => a.totalWalkTime - b.totalWalkTime || a.totalTime - b.totalTime);
 
     const seen = new Set();
     const unique = [];
