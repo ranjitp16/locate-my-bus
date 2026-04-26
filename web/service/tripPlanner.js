@@ -9,6 +9,7 @@ const TWO_XFER_PRUNE_RADIUS = 2000; // heuristic: skip R2 if no stops within 2km
 const MAX_ONE_XFER_RESULTS = 100;   // cap 1-transfer candidates to avoid OOM
 const MAX_TWO_XFER_RESULTS = 50;    // cap 2-transfer candidates
 const MAX_TWO_XFER_ITERATIONS = 5000; // hard iteration limit for 2-transfer inner loops
+const PLAN_TIMEOUT_MS = 8000;         // overall timeout — return partial results after 8s
 
 function haversineMeters(lat1, lng1, lat2, lng2) {
     const R = 6371000;
@@ -178,8 +179,10 @@ async function findOneTransferRoutes(pool, agencyId, origin, dest, stopsNearA, s
     }
 
     const results = [];
-    // Cache transfer stop lookups to avoid repeated DB calls for same R1×R2 pair
-    const xferCache = new Map();
+
+    // Single batch query for ALL transfer stops across all R1×R2 pairs
+    const allCandidateRoutes = [...new Set([...r1Routes, ...r2Routes])];
+    const xferMap = await repo.getBatchTransferStops(pool, agencyId, allCandidateRoutes);
 
     for (const r1 of r1Routes) {
         if (results.length >= MAX_ONE_XFER_RESULTS) break;
@@ -188,15 +191,8 @@ async function findOneTransferRoutes(pool, agencyId, origin, dest, stopsNearA, s
             if (results.length >= MAX_ONE_XFER_RESULTS) break;
             if (r1 === r2) continue;
 
-            // Find stops shared between R1 and R2 (cached)
             const cacheKey = r1 < r2 ? r1 + '|' + r2 : r2 + '|' + r1;
-            let transferStops;
-            if (xferCache.has(cacheKey)) {
-                transferStops = xferCache.get(cacheKey);
-            } else {
-                transferStops = await repo.getTransferStops(pool, agencyId, r1, r2);
-                xferCache.set(cacheKey, transferStops);
-            }
+            const transferStops = xferMap.get(cacheKey) || [];
             if (!transferStops.length) continue;
 
             const r2ByTrip = tripsByRoute[r2];
@@ -606,6 +602,7 @@ async function planTrip(pool, agencyId, originLat, originLng, destLat, destLng) 
 
     const origin = { lat: originLat, lng: originLng };
     const dest = { lat: destLat, lng: destLng };
+    const startTime = Date.now();
 
     // Step 2: Find nearby stops
     const stopsNearA = await findNearbyStops(pool, agencyId, origin.lat, origin.lng);
@@ -619,18 +616,22 @@ async function planTrip(pool, agencyId, originLat, originLng, destLat, destLng) 
     const allStopIds = [...new Set([...stopsNearA.map(s => s.id), ...stopsNearB.map(s => s.id)])];
     const routeStopIndex = await repo.getRouteStopIndex(pool, agencyId, allStopIds);
 
-    // Step 4: Run searches
+    // Step 4: Run searches (with timeout checks)
     const direct = await findDirectRoutes(pool, agencyId, origin, dest, stopsNearA, stopsNearB, routeStopIndex, nowSecs);
-    const oneXfer = await findOneTransferRoutes(pool, agencyId, origin, dest, stopsNearA, stopsNearB, routeStopIndex, nowSecs);
+    let allResults = [...direct];
 
-    let allResults = [...direct, ...oneXfer];
+    if (Date.now() - startTime < PLAN_TIMEOUT_MS) {
+        const oneXfer = await findOneTransferRoutes(pool, agencyId, origin, dest, stopsNearA, stopsNearB, routeStopIndex, nowSecs);
+        allResults = [...allResults, ...oneXfer];
+    }
+
     const bestSoFar = allResults.reduce((min, r) => r.totalTime < min ? r.totalTime : min, Infinity);
 
-    // Skip expensive 2-transfer search if we already have enough diverse results
+    // Skip expensive 2-transfer search if we already have enough diverse results or timed out
     const uniqueRouteKeys = new Set(allResults.map(r =>
         r.legs.filter(l => l.type === 'bus').map(l => l.routeId).join('|')
     ));
-    if (uniqueRouteKeys.size < 3) {
+    if (uniqueRouteKeys.size < 3 && Date.now() - startTime < PLAN_TIMEOUT_MS) {
         const twoXfer = await findTwoTransferRoutes(pool, agencyId, origin, dest, stopsNearA, stopsNearB, routeStopIndex, nowSecs, bestSoFar);
         allResults = [...allResults, ...twoXfer];
     }
