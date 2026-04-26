@@ -70,14 +70,6 @@ async function getLiveVehicle(pool, agencyId, routeId, tripId) {
     return rows[0] || null;
 }
 
-async function getLiveRouteIds(pool, agencyId) {
-    const { rows } = await pool.query(
-        'SELECT DISTINCT route_id FROM public.live_vehicle_position WHERE agency_id = $1',
-        [agencyId]
-    );
-    return new Set(rows.map(r => r.route_id));
-}
-
 async function getTripStopTimes(pool, agencyId, tripId) {
     const { rows } = await pool.query(
         `SELECT st.stop_id, st.arrival_time, st.departure_time,
@@ -98,6 +90,5 @@ module.exports = {
     getTransferStops,
     getRouteInfo,
     getLiveVehicle,
-    getLiveRouteIds,
     getTripStopTimes,
 };
