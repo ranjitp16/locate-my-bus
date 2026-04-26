@@ -665,8 +665,8 @@ async function planTrip(pool, agencyId, originLat, originLng, destLat, destLng) 
         return { options: [], error: 'No routes found for this trip' };
     }
 
-    // Step 5: Sort, deduplicate, build diverse top 3
-    allResults.sort((a, b) => a.totalWalkTime - b.totalWalkTime || a.totalTime - b.totalTime);
+    // Step 5: Sort by walking FIRST so the closest-stop variant survives dedup
+    allResults.sort((a, b) => a.totalWalkTime - b.totalWalkTime);
 
     const seen = new Set();
     const unique = [];
@@ -678,19 +678,17 @@ async function planTrip(pool, agencyId, originLat, originLng, destLat, destLng) 
         }
     }
 
-    // Guarantee diversity: best overall + best direct (if exists) + best alternative
-    const top3 = [];
-    if (unique.length > 0) top3.push(unique[0]); // #1: fastest overall
+    // Cascading filter: time → transfers → walking
+    // Stage 1: sort by shortest time → take top 6
+    unique.sort((a, b) => a.totalTime - b.totalTime);
+    const top6 = unique.slice(0, 6);
 
-    // #2: best direct route (0 transfers) if not already included
-    const bestDirect = unique.find(r => r.transfers === 0 && r !== top3[0]);
-    if (bestDirect) top3.push(bestDirect);
+    // Stage 2: sort by fewest transfers → take top 3
+    top6.sort((a, b) => a.transfers - b.transfers);
+    const top3 = top6.slice(0, 3);
 
-    // Fill remaining slots with next-best unique options
-    for (const r of unique) {
-        if (top3.length >= 3) break;
-        if (!top3.includes(r)) top3.push(r);
-    }
+    // Stage 3: sort by least walking → final display order
+    top3.sort((a, b) => a.totalWalkTime - b.totalWalkTime);
 
     // Step 6: Assign labels
     if (top3.length > 0) top3[0].label = 'Best';
