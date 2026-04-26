@@ -620,9 +620,25 @@ async function planTrip(pool, agencyId, originLat, originLng, destLat, destLng) 
         return { options: [], error: 'No transit stops found near origin or destination' };
     }
 
-    // Step 3: Build route-stop index
+    // Step 3: Build route-stop index, filtered to today's active services
     const allStopIds = [...new Set([...stopsNearA.map(s => s.id), ...stopsNearB.map(s => s.id)])];
-    const routeStopIndex = await repo.getRouteStopIndex(pool, agencyId, allStopIds);
+    const rawRouteStopIndex = await repo.getRouteStopIndex(pool, agencyId, allStopIds);
+
+    // Get today's date info in the agency timezone for calendar filtering
+    const nowDate = new Date();
+    const tzParts = new Intl.DateTimeFormat('en-US', {
+        timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit',
+    }).formatToParts(nowDate);
+    const getTzPart = type => tzParts.find(p => p.type === type)?.value || '';
+    const todayStr = getTzPart('year') + getTzPart('month') + getTzPart('day');
+    const dayOfWeek = new Date(parseInt(getTzPart('year')), parseInt(getTzPart('month')) - 1, parseInt(getTzPart('day'))).getDay();
+
+    const activeServices = await repo.getActiveServiceIds(pool, agencyId, todayStr, dayOfWeek);
+
+    // Filter to trips running today; if no calendar data exists, keep all trips
+    const routeStopIndex = activeServices.size > 0
+        ? rawRouteStopIndex.filter(r => activeServices.has(r.service_id))
+        : rawRouteStopIndex;
 
     // Step 4: Run searches (with timeout checks)
     const direct = await findDirectRoutes(pool, agencyId, origin, dest, stopsNearA, stopsNearB, routeStopIndex, nowSecs);

@@ -348,4 +348,38 @@ const handleWriteFromStopTimes = async (client, fileName, tableName, decompresse
     console.log("COMPLETED STOP_TIME WRITES: " + static_feed_url);
 };
 
-module.exports = { handleWriteFromAgency, handleWriteFromRoutes, handleWriteFromShapes, handleWriteFromTrip, handleWriteFromStops, handleWriteFromStopTimes };
+const handleWriteFromCalendar = async (client, fileName, tableName, decompressed, listOfAgencyGuids, static_feed_url) => {
+    const file = decompressed.files.find(f => f.path === fileName);
+    if (!file) {
+        console.log(`${fileName} not found in GTFS feed ${static_feed_url} — skipping (optional file)`);
+        return;
+    }
+    console.log("INITIATING CALENDAR WRITES: " + static_feed_url);
+
+    let { lines, header, sanitized_table_headers_no_id } = await getFileContentsFromTrip(client, decompressed, fileName, tableName, static_feed_url);
+
+    const columns = [...header.filter(h => sanitized_table_headers_no_id.some(sh => sh.column_name === h))];
+    columns.push("agency_id");
+
+    for (const { uuid } of listOfAgencyGuids) {
+        const agency_id = uuid;
+        const rows = [];
+
+        for (const line of lines) {
+            const values = parseCsvLine(line);
+            const params = [];
+            header.forEach((h, i) => {
+                if (sanitized_table_headers_no_id.some(sh => sh.column_name === h)) {
+                    params.push(values[i] || null);
+                }
+            });
+            params.push(agency_id);
+            rows.push(params);
+        }
+
+        if (rows.length > 0) await bulkInsert(client, tableName, columns, rows);
+    }
+    console.log("COMPLETED CALENDAR WRITES: " + static_feed_url);
+};
+
+module.exports = { handleWriteFromAgency, handleWriteFromRoutes, handleWriteFromShapes, handleWriteFromTrip, handleWriteFromStops, handleWriteFromStopTimes, handleWriteFromCalendar };

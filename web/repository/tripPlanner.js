@@ -19,7 +19,7 @@ async function getStopsNearPoint(pool, agencyId, lat, lng, radiusMeters) {
 async function getRouteStopIndex(pool, agencyId, stopIds) {
     if (!Array.isArray(stopIds) || !stopIds.length) return [];
     const { rows } = await pool.query(
-        `SELECT t.route_id, t.id AS trip_id, t.shape_id,
+        `SELECT t.route_id, t.id AS trip_id, t.shape_id, t.service_id,
                 st.stop_id, st.arrival_time, st.departure_time,
                 st.stop_sequence::int AS stop_sequence
          FROM public.stop_time st
@@ -94,6 +94,38 @@ async function getLiveVehicle(pool, agencyId, routeId, tripId) {
     return rows[0] || null;
 }
 
+/**
+ * Returns the set of service_ids active today for this agency.
+ * Uses GTFS calendar (day-of-week + date range) with calendar_dates exceptions.
+ */
+async function getActiveServiceIds(pool, agencyId, todayStr, dayOfWeek) {
+    // dayOfWeek: 0=sunday..6=saturday; todayStr: 'YYYYMMDD'
+    const dayCol = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'][dayOfWeek];
+
+    // Base: services running today per calendar
+    const { rows: calRows } = await pool.query(
+        `SELECT service_id FROM public.calendar
+         WHERE agency_id = $1
+           AND ${dayCol} = '1'
+           AND (start_date IS NULL OR start_date <= $2)
+           AND (end_date IS NULL OR end_date >= $2)`,
+        [agencyId, todayStr]
+    );
+    const active = new Set(calRows.map(r => r.service_id));
+
+    // Exceptions: type 1 = added, type 2 = removed
+    const { rows: exRows } = await pool.query(
+        'SELECT service_id, exception_type FROM public.calendar_date WHERE agency_id = $1 AND date = $2',
+        [agencyId, todayStr]
+    );
+    for (const ex of exRows) {
+        if (ex.exception_type === '1') active.add(ex.service_id);
+        else if (ex.exception_type === '2') active.delete(ex.service_id);
+    }
+
+    return active;
+}
+
 async function getTripStopTimes(pool, agencyId, tripId) {
     const { rows } = await pool.query(
         `SELECT st.stop_id, st.arrival_time, st.departure_time,
@@ -115,5 +147,6 @@ module.exports = {
     getStopsByRoutes,
     getRouteInfo,
     getLiveVehicle,
+    getActiveServiceIds,
     getTripStopTimes,
 };
