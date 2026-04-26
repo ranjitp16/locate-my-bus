@@ -1,0 +1,4 @@
+User-agent: *
+Disallow: /api/dashboard/
+
+Sitemap: https://bus.ranjitpandey.dev/sitemap.xml
