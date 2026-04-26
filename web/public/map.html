@@ -167,6 +167,8 @@
     });
 
     mapAdapter.onMarkerClick(function ({ vehicleId, lat, lon, tripId }) {
+        // In trip mode, don't draw the normal route — the trip plan routes are already shown
+        if (tripMode) return;
         if (pinnedVehicleId === vehicleId) {
             pinnedVehicleId = null;
             manuallyPinned  = false;
@@ -409,6 +411,7 @@
     let destLng = null;
     let tripOptions = null;
     let selectedTripIdx = 0;
+    let lastEnrichedLegs = null;
     const tripBtn = document.getElementById('trip-btn');
     const tripSheet = document.getElementById('trip-sheet');
     const tripCloseBtn = document.getElementById('trip-close-btn');
@@ -616,6 +619,9 @@
         }
     }
 
+    // Matches the tripPalette in map-adapter-azure.js drawTripPlan
+    const TRIP_COLORS = ['#d84315', '#6a1b9a', '#00838f'];
+
     function formatMinutes(secs) {
         const m = Math.round(secs / 60);
         return m < 1 ? '< 1 min' : m + ' min';
@@ -644,6 +650,7 @@
         tripOptions.forEach(function (opt, idx) {
             let legsHtml = '';
             let detailHtml = '';
+            let busColorIdx = 0;
             // Compute a running clock for timing
             const nowDate = new Date();
             let clock = new Date(nowDate);
@@ -665,7 +672,8 @@
                         detailHtml += '🏁 <b>' + arriveAt + '</b> — Arrive at destination<br>';
                     }
                 } else if (leg.type === 'bus') {
-                    const color = leg.routeColor || '#1558d0';
+                    const color = TRIP_COLORS[busColorIdx % TRIP_COLORS.length];
+                    busColorIdx++;
                     legsHtml += '<span class="trip-leg-badge" style="background:' + color + ';">' + leg.routeId + '</span>';
                     // Use scheduled board time if available, otherwise use running clock
                     const boardDate = gtfsTimeToDate(leg.boardTime) || clock;
@@ -793,6 +801,7 @@
             return leg;
         }));
 
+        lastEnrichedLegs = enrichedLegs;
         mapAdapter.drawTripPlan(enrichedLegs);
         // Clear stale bus markers immediately, then fetch correct ones
         mapAdapter.showTripBuses([], []);
@@ -820,9 +829,11 @@
         }));
 
         // Pick the best bus per leg: exact vehicleId match → closest to boarding stop
+        // Also tag each leg with hasLiveBus for approach path rendering
         const pinnedIds = [];
         busLegs.forEach(function (leg) {
             const vehicles = allByRoute[leg.routeId] || [];
+            leg.hasLiveBus = vehicles.length > 0;
             if (!vehicles.length) return;
             // Try exact match
             if (leg.vehicleId) {
@@ -856,6 +867,19 @@
             const pinnedSet = new Set(pinnedIds);
             displayVehicles = routeIds.flatMap(function (rid) { return allByRoute[rid] || []; })
                 .filter(function (v) { return pinnedSet.has(v.vehicle_id); });
+        }
+
+        // Redraw trip plan now that hasLiveBus flags are set (controls approach path visibility)
+        if (lastEnrichedLegs) {
+            // Copy hasLiveBus from busLegs back into the enriched legs
+            let bi = 0;
+            lastEnrichedLegs.forEach(function (leg) {
+                if (leg.type === 'bus') {
+                    leg.hasLiveBus = busLegs[bi] ? busLegs[bi].hasLiveBus : false;
+                    bi++;
+                }
+            });
+            mapAdapter.drawTripPlan(lastEnrichedLegs);
         }
 
         mapAdapter.showTripBuses(displayVehicles, pinnedIds);

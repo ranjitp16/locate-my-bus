@@ -892,7 +892,8 @@
             _whenReady(function () {
                 self.clearTripPlan();
 
-                var palette = ['#1558d0', '#e53935', '#2e7d32', '#f57c00', '#7b1fa2'];
+                // Distinct trip-leg palette — avoids common GTFS route colors (blue/red/green)
+                var tripPalette = ['#d84315', '#6a1b9a', '#00838f'];
                 var busIndex = 0;
 
                 legs.forEach(function (leg) {
@@ -900,11 +901,11 @@
                         var walkCoords = leg.walkPath.map(function (p) { return [p.lng, p.lat]; });
                         _tripSvgs.push(_createColoredSvg(walkCoords, '#2e7d32', true));
                     } else if (leg.type === 'bus' && leg.shapePath && leg.shapePath.length >= 2) {
-                        var color = leg.routeColor || palette[busIndex % palette.length];
+                        var color = tripPalette[busIndex % tripPalette.length];
                         busIndex++;
 
-                        // Approach path: route start → boarding stop (faint dashed)
-                        if (leg.approachPath && leg.approachPath.length >= 2) {
+                        // Approach path: route start → boarding stop (only if live bus exists)
+                        if (leg.approachPath && leg.approachPath.length >= 2 && leg.hasLiveBus) {
                             var approachCoords = leg.approachPath.map(function (p) { return [p.lon, p.lat]; });
                             _tripSvgs.push(_createColoredSvg(approachCoords, color, true));
                         }
