@@ -148,7 +148,7 @@ async function findDirectRoutes(pool, agencyId, origin, dest, stopsNearA, stopsN
     return results;
 }
 
-async function findOneTransferRoutes(pool, agencyId, origin, dest, stopsNearA, stopsNearB, routeStopIndex, nowSecs) {
+async function findOneTransferRoutes(pool, agencyId, origin, dest, stopsNearA, stopsNearB, routeStopIndex, nowSecs, deadline) {
     const nearAIds = new Set(stopsNearA.map(s => s.id));
     const nearBIds = new Set(stopsNearB.map(s => s.id));
 
@@ -185,13 +185,13 @@ async function findOneTransferRoutes(pool, agencyId, origin, dest, stopsNearA, s
     const stopsByRoute = await repo.getStopsByRoutes(pool, agencyId, allCandidateRoutes);
 
     for (const r1 of r1Routes) {
-        if (results.length >= MAX_ONE_XFER_RESULTS) break;
+        if (results.length >= MAX_ONE_XFER_RESULTS || Date.now() >= deadline) break;
         const r1ByTrip = tripsByRoute[r1];
         const r1Stops = stopsByRoute.get(r1);
         if (!r1Stops) continue;
 
         for (const r2 of r2Routes) {
-            if (results.length >= MAX_ONE_XFER_RESULTS) break;
+            if (results.length >= MAX_ONE_XFER_RESULTS || Date.now() >= deadline) break;
             if (r1 === r2) continue;
 
             // Compute transfer stops as intersection of stops served by R1 and R2
@@ -322,7 +322,7 @@ async function findOneTransferRoutes(pool, agencyId, origin, dest, stopsNearA, s
     return results;
 }
 
-async function findTwoTransferRoutes(pool, agencyId, origin, dest, stopsNearA, stopsNearB, routeStopIndex, nowSecs, bestSoFar) {
+async function findTwoTransferRoutes(pool, agencyId, origin, dest, stopsNearA, stopsNearB, routeStopIndex, nowSecs, bestSoFar, deadline) {
     const nearAIds = new Set(stopsNearA.map(s => s.id));
     let iterations = 0;
     // Cache getTripStopTimes to avoid repeated fetches for the same trip
@@ -348,7 +348,7 @@ async function findTwoTransferRoutes(pool, agencyId, origin, dest, stopsNearA, s
     const results = [];
 
     for (const r1 of r1Routes) {
-        if (iterations >= MAX_TWO_XFER_ITERATIONS || results.length >= MAX_TWO_XFER_RESULTS) break;
+        if (iterations >= MAX_TWO_XFER_ITERATIONS || results.length >= MAX_TWO_XFER_RESULTS || Date.now() >= deadline) break;
         const r1Entries = byRoute[r1];
 
         // Group R1 entries by trip
@@ -359,7 +359,7 @@ async function findTwoTransferRoutes(pool, agencyId, origin, dest, stopsNearA, s
         }
 
         for (const [r1TripId, r1TripEntries] of Object.entries(r1ByTrip)) {
-            if (iterations >= MAX_TWO_XFER_ITERATIONS || results.length >= MAX_TWO_XFER_RESULTS) break;
+            if (iterations >= MAX_TWO_XFER_ITERATIONS || results.length >= MAX_TWO_XFER_RESULTS || Date.now() >= deadline) break;
             const boardCandidates = r1TripEntries.filter(e => nearAIds.has(e.stop_id));
             if (!boardCandidates.length) continue;
 
@@ -384,7 +384,7 @@ async function findTwoTransferRoutes(pool, agencyId, origin, dest, stopsNearA, s
                 // Enumerate T1: every stop on R1 beyond the boarding stop
                 for (const t1Stop of r1StopTimes) {
                     iterations++;
-                    if (iterations >= MAX_TWO_XFER_ITERATIONS || results.length >= MAX_TWO_XFER_RESULTS) break;
+                    if (iterations >= MAX_TWO_XFER_ITERATIONS || results.length >= MAX_TWO_XFER_RESULTS || Date.now() >= deadline) break;
                     if (t1Stop.stop_sequence <= board.stop_sequence) continue;
 
                     const r1ArrT1Secs = gtfsTimeToSeconds(t1Stop.arrival_time);
@@ -628,8 +628,9 @@ async function planTrip(pool, agencyId, originLat, originLng, destLat, destLng) 
     const direct = await findDirectRoutes(pool, agencyId, origin, dest, stopsNearA, stopsNearB, routeStopIndex, nowSecs);
     let allResults = [...direct];
 
-    if (Date.now() - startTime < PLAN_TIMEOUT_MS) {
-        const oneXfer = await findOneTransferRoutes(pool, agencyId, origin, dest, stopsNearA, stopsNearB, routeStopIndex, nowSecs);
+    const deadline = startTime + PLAN_TIMEOUT_MS;
+    if (Date.now() < deadline) {
+        const oneXfer = await findOneTransferRoutes(pool, agencyId, origin, dest, stopsNearA, stopsNearB, routeStopIndex, nowSecs, deadline);
         allResults = [...allResults, ...oneXfer];
     }
 
@@ -639,8 +640,8 @@ async function planTrip(pool, agencyId, originLat, originLng, destLat, destLng) 
     const uniqueRouteKeys = new Set(allResults.map(r =>
         r.legs.filter(l => l.type === 'bus').map(l => l.routeId).join('|')
     ));
-    if (uniqueRouteKeys.size < 3 && Date.now() - startTime < PLAN_TIMEOUT_MS) {
-        const twoXfer = await findTwoTransferRoutes(pool, agencyId, origin, dest, stopsNearA, stopsNearB, routeStopIndex, nowSecs, bestSoFar);
+    if (uniqueRouteKeys.size < 3 && Date.now() < deadline) {
+        const twoXfer = await findTwoTransferRoutes(pool, agencyId, origin, dest, stopsNearA, stopsNearB, routeStopIndex, nowSecs, bestSoFar, deadline);
         allResults = [...allResults, ...twoXfer];
     }
 
