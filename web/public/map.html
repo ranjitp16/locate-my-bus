@@ -762,42 +762,61 @@
         if (!opt) return;
 
         const busLegs = opt.legs.filter(function (l) { return l.type === 'bus'; });
-        const routeIds = busLegs.map(function (l) { return l.routeId; });
-        const pinnedIds = busLegs.map(function (l) { return l.vehicleId; }).filter(Boolean);
         const agencyId = agencySelect.value;
 
-        const results = await Promise.all(routeIds.map(async function (routeId, ri) {
+        // Fetch ALL live vehicles for each route involved
+        const routeIds = [...new Set(busLegs.map(function (l) { return l.routeId; }))];
+        const allByRoute = {};
+        await Promise.all(routeIds.map(async function (routeId) {
             try {
                 const res = await fetch('/live/' + agencyId + '/' + routeId);
-                const vehicles = await res.json();
-                if (showAll) return vehicles;
-                // Try exact vehicle match first
-                const legVehicleId = busLegs[ri].vehicleId;
-                if (legVehicleId) {
-                    const found = vehicles.find(function (v) { return v.vehicle_id === legVehicleId; });
-                    if (found) return [found];
-                }
-                // Fallback: show the bus closest to the boarding stop
-                if (vehicles.length && busLegs[ri].boardStop) {
-                    const bLat = busLegs[ri].boardStop.lat;
-                    const bLng = busLegs[ri].boardStop.lng;
-                    let closest = vehicles[0], closestDist = Infinity;
-                    vehicles.forEach(function (v) {
-                        const d = haversineMeters(bLat, bLng, v.lat, v.lon);
-                        if (d < closestDist) { closestDist = d; closest = v; }
-                    });
-                    return [closest];
-                }
-            } catch (e) { console.error('Live fetch for trip bus failed:', e); }
-            return [];
+                allByRoute[routeId] = await res.json();
+            } catch (e) {
+                console.error('Live fetch failed for route', routeId, e);
+                allByRoute[routeId] = [];
+            }
         }));
-        const allVehicles = results.flat();
 
-        // Pin the first vehicle from each leg so it opens with a popup
-        const actualPinnedIds = allVehicles.map(function (v) { return v.vehicle_id; });
+        // Pick the best bus per leg: exact vehicleId match → closest to boarding stop
+        const pinnedIds = [];
+        busLegs.forEach(function (leg) {
+            const vehicles = allByRoute[leg.routeId] || [];
+            if (!vehicles.length) return;
+            // Try exact match
+            if (leg.vehicleId) {
+                const exact = vehicles.find(function (v) { return v.vehicle_id === leg.vehicleId; });
+                if (exact) { pinnedIds.push(exact.vehicle_id); return; }
+            }
+            // Fallback: closest bus to board stop on this route
+            const bLat = leg.boardStop && leg.boardStop.lat;
+            const bLng = leg.boardStop && (leg.boardStop.lng != null ? leg.boardStop.lng : leg.boardStop.lon);
+            if (bLat != null && bLng != null) {
+                let closest = vehicles[0], closestDist = Infinity;
+                for (const v of vehicles) {
+                    if (v.lat == null || v.lon == null) continue;
+                    const d = haversineMeters(bLat, bLng, v.lat, v.lon);
+                    if (d < closestDist) { closestDist = d; closest = v; }
+                }
+                if (closest) pinnedIds.push(closest.vehicle_id);
+            } else {
+                // No coordinates — just pin the first bus on the route
+                pinnedIds.push(vehicles[0].vehicle_id);
+            }
+        });
 
-        // Always call showTripBuses — even with empty array — to clear stale markers
-        mapAdapter.showTripBuses(allVehicles, actualPinnedIds);
+        // Build final vehicle list
+        let displayVehicles;
+        if (showAll) {
+            // Show all buses on all involved routes
+            displayVehicles = routeIds.flatMap(function (rid) { return allByRoute[rid] || []; });
+        } else {
+            // Show only the pinned buses (one per leg)
+            const pinnedSet = new Set(pinnedIds);
+            displayVehicles = routeIds.flatMap(function (rid) { return allByRoute[rid] || []; })
+                .filter(function (v) { return pinnedSet.has(v.vehicle_id); });
+        }
+
+        mapAdapter.showTripBuses(displayVehicles, pinnedIds);
     }
 
     /* ── Fetch live vehicles for current selection ── */
