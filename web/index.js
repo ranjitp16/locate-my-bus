@@ -165,6 +165,9 @@ async function azureFetch(path, params) {
 
 // Geocoding — returns { results: [{ displayName, lat, lon }] }
 app.get('/api/maps/geocode', async (req, res) => {
+    if (req.headers['x-azure-maps-proxy'] !== '1') {
+        return res.status(403).json({ error: 'Forbidden' });
+    }
     if (!process.env.AZURE_MAPS_KEY) return res.status(503).json({ error: 'Maps key not configured' });
     const { query, lat, lon, radius, limit } = req.query;
     if (!query) return res.status(400).json({ error: 'Missing query param' });
@@ -190,6 +193,9 @@ app.get('/api/maps/geocode', async (req, res) => {
 
 // Walking route — returns { points: [{lat, lng}], distanceMeters, durationSeconds }
 app.get('/api/maps/walk-route', async (req, res) => {
+    if (req.headers['x-azure-maps-proxy'] !== '1') {
+        return res.status(403).json({ error: 'Forbidden' });
+    }
     if (!process.env.AZURE_MAPS_KEY) return res.status(503).json({ error: 'Maps key not configured' });
     const { originLat, originLng, destLat, destLng } = req.query;
     if (!originLat || !originLng || !destLat || !destLng) {

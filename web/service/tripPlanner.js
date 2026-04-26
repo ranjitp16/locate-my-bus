@@ -326,7 +326,7 @@ async function findOneTransferRoutes(pool, agencyId, origin, dest, stopsNearA, s
     return results;
 }
 
-async function findTwoTransferRoutes(pool, agencyId, origin, dest, stopsNearA, stopsNearB, routeStopIndex, nowSecs, bestSoFar, deadline) {
+async function findTwoTransferRoutes(pool, agencyId, origin, dest, stopsNearA, stopsNearB, routeStopIndex, nowSecs, bestSoFar, deadline, activeServiceIds) {
     const nearAIds = new Set(stopsNearA.map(s => s.id));
     const stopAMap = new Map(stopsNearA.map(s => [s.id, s]));
     let iterations = 0;
@@ -403,23 +403,29 @@ async function findTwoTransferRoutes(pool, agencyId, origin, dest, stopsNearA, s
                     if (bestSoFar !== undefined && walkToBoard + waitForR1 + ride1Time >= bestSoFar) continue;
 
                     // Find R2 candidates: routes serving T1, excluding R1
+                    const r2ServiceFilter = activeServiceIds.length > 0 ? ' AND t.service_id = ANY($4)' : '';
+                    const r2CandidateParams = [agencyId, t1Stop.stop_id, r1];
+                    if (activeServiceIds.length > 0) r2CandidateParams.push(activeServiceIds);
                     const { rows: r2Candidates } = await pool.query(
                         `SELECT DISTINCT t.route_id
                          FROM public.stop_time st
                          JOIN public.trip t ON t.agency_id = st.agency_id AND t.id = st.trip_id
-                         WHERE st.agency_id = $1 AND st.stop_id = $2 AND t.route_id != $3`,
-                        [agencyId, t1Stop.stop_id, r1]
+                         WHERE st.agency_id = $1 AND st.stop_id = $2 AND t.route_id != $3` + r2ServiceFilter,
+                        r2CandidateParams
                     );
 
                     for (const { route_id: r2 } of r2Candidates) {
                         // Find R2 trips departing T1 after R1 arrives at T1
+                        const r2TripServiceFilter = activeServiceIds.length > 0 ? ' AND t.service_id = ANY($4)' : '';
+                        const r2TripParams = [agencyId, t1Stop.stop_id, r2];
+                        if (activeServiceIds.length > 0) r2TripParams.push(activeServiceIds);
                         const { rows: r2TripRows } = await pool.query(
                             `SELECT DISTINCT st.trip_id, st.departure_time
                              FROM public.stop_time st
                              JOIN public.trip t ON t.agency_id = st.agency_id AND t.id = st.trip_id
                              WHERE st.agency_id = $1 AND st.stop_id = $2 AND t.route_id = $3
-                               AND st.departure_time IS NOT NULL`,
-                            [agencyId, t1Stop.stop_id, r2]
+                               AND st.departure_time IS NOT NULL` + r2TripServiceFilter,
+                            r2TripParams
                         );
 
                         for (const r2TripRow of r2TripRows) {
@@ -459,31 +465,37 @@ async function findTwoTransferRoutes(pool, agencyId, origin, dest, stopsNearA, s
 
                                 // Find R3 candidates: routes serving T2 (excl. R2) that also serve at least
                                 // one stop within TWO_XFER_PRUNE_RADIUS of dest — avoids fetching dead trips
+                                const r3ServiceFilter = activeServiceIds.length > 0 ? ' AND t.service_id = ANY($5)' : '';
+                                const r3CandidateParams = [agencyId, t2Stop.stop_id, r2, nearDestPruneArr];
+                                if (activeServiceIds.length > 0) r3CandidateParams.push(activeServiceIds);
                                 const { rows: r3Candidates } = nearDestPruneArr.length
                                     ? await pool.query(
                                         `SELECT DISTINCT t.route_id
                                          FROM public.stop_time st
                                          JOIN public.trip t ON t.agency_id = st.agency_id AND t.id = st.trip_id
-                                         WHERE st.agency_id = $1 AND st.stop_id = $2 AND t.route_id != $3
+                                         WHERE st.agency_id = $1 AND st.stop_id = $2 AND t.route_id != $3` + r3ServiceFilter + `
                                            AND EXISTS (
                                                SELECT 1 FROM public.stop_time st2
                                                JOIN public.trip t2 ON t2.agency_id = st2.agency_id AND t2.id = st2.trip_id
                                                WHERE st2.agency_id = $1 AND t2.route_id = t.route_id
                                                  AND st2.stop_id = ANY($4)
                                            )`,
-                                        [agencyId, t2Stop.stop_id, r2, nearDestPruneArr]
+                                        r3CandidateParams
                                     )
                                     : { rows: [] };
 
                                 for (const { route_id: r3 } of r3Candidates) {
                                     // R3 trips departing T2 after R2 arrives at T2
+                                    const r3TripServiceFilter = activeServiceIds.length > 0 ? ' AND t.service_id = ANY($4)' : '';
+                                    const r3TripParams = [agencyId, t2Stop.stop_id, r3];
+                                    if (activeServiceIds.length > 0) r3TripParams.push(activeServiceIds);
                                     const { rows: r3TripRows } = await pool.query(
                                         `SELECT DISTINCT st.trip_id, st.departure_time
                                          FROM public.stop_time st
                                          JOIN public.trip t ON t.agency_id = st.agency_id AND t.id = st.trip_id
                                          WHERE st.agency_id = $1 AND st.stop_id = $2 AND t.route_id = $3
-                                           AND st.departure_time IS NOT NULL`,
-                                        [agencyId, t2Stop.stop_id, r3]
+                                           AND st.departure_time IS NOT NULL` + r3TripServiceFilter,
+                                        r3TripParams
                                     );
 
                                     for (const r3TripRow of r3TripRows) {
@@ -511,7 +523,7 @@ async function findTwoTransferRoutes(pool, agencyId, origin, dest, stopsNearA, s
                                         for (const alight of alightCandidates) {
                                             const arrSecs = gtfsTimeToSeconds(alight.arrival_time);
                                             if (arrSecs === null || isNaN(arrSecs)) continue;
-                                            if (!alight.lat || !alight.lon) continue;
+                                            if (alight.lat == null || alight.lon == null) continue;
 
                                             const distFromAlight = haversineMeters(alight.lat, alight.lon, dest.lat, dest.lng) * MANHATTAN_FACTOR;
                                             const walkFromAlight = Math.round(distFromAlight / WALK_SPEED_MS);
@@ -662,7 +674,8 @@ async function planTrip(pool, agencyId, originLat, originLng, destLat, destLng) 
         r.legs.filter(l => l.type === 'bus').map(l => l.routeId).join('|')
     ));
     if (uniqueRouteKeys.size < 3 && Date.now() < deadline) {
-        const twoXfer = await findTwoTransferRoutes(pool, agencyId, origin, dest, stopsNearA, stopsNearB, routeStopIndex, nowSecs, bestSoFar, deadline);
+        const activeServiceArr = [...activeServices];
+        const twoXfer = await findTwoTransferRoutes(pool, agencyId, origin, dest, stopsNearA, stopsNearB, routeStopIndex, nowSecs, bestSoFar, deadline, activeServiceArr);
         allResults = [...allResults, ...twoXfer];
     }
 
@@ -699,8 +712,8 @@ async function planTrip(pool, agencyId, originLat, originLng, destLat, destLng) 
     if (top3.length > 0) top3[0].label = 'Best';
     for (let i = 1; i < top3.length; i++) {
         const opt = top3[i];
-        if (opt.transfers < top3[0].transfers) opt.label = 'Fewer transfers';
-        else if (opt.transfers === 0 && top3[0].transfers > 0) opt.label = 'Direct route';
+        if (opt.transfers === 0 && top3[0].transfers > 0) opt.label = 'Direct route';
+        else if (opt.transfers < top3[0].transfers) opt.label = 'Fewer transfers';
         else if (opt.totalWalkTime < top3[0].totalWalkTime) opt.label = 'Less walking';
         else if (opt.totalWalkTime > top3[0].totalWalkTime) opt.label = 'More walking';
         else opt.label = 'Alternative';

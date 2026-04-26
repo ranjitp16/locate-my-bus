@@ -69,7 +69,7 @@
         <div id="trip-sheet-handle"></div>
         <div id="trip-sheet-title">
             <span>Plan Trip</span>
-            <button id="trip-close-btn" style="background:none;border:none;font-size:1.1rem;cursor:pointer;color:var(--text-muted);">✕</button>
+            <button id="trip-close-btn" aria-label="Close trip planner" style="background:none;border:none;font-size:1.1rem;cursor:pointer;color:var(--text-muted);">✕</button>
         </div>
         <div id="trip-inputs">
             <div class="trip-origin-row">
@@ -535,7 +535,7 @@
 
     async function geocodeAddress(query) {
         try {
-            const res = await fetch('/api/maps/geocode?query=' + encodeURIComponent(query) + '&limit=5&lat=' + userLat + '&lon=' + userLng + '&radius=75000');
+            const res = await fetch('/api/maps/geocode?query=' + encodeURIComponent(query) + '&limit=5&lat=' + userLat + '&lon=' + userLng + '&radius=75000', { headers: { 'X-Azure-Maps-Proxy': '1' } });
             const data = await res.json();
             const results = data.results || [];
             if (!results.length) {
@@ -649,7 +649,7 @@
         const destDisplay = tripDestInput.value.length > 25 ? tripDestInput.value.substring(0, 25) + '…' : tripDestInput.value;
         let html = '<div class="trip-summary-row"><span>📍 My Location → 🏁 ' +
             escapeHtml(destDisplay) +
-            '</span><span><a id="trip-refresh-link" title="Refresh results">🔄</a> <a id="trip-edit-link">Edit</a></span></div>';
+            '</span><span><button type="button" id="trip-refresh-link" title="Refresh results">🔄</button> <button type="button" id="trip-edit-link">Edit</button></span></div>';
 
         tripOptions.forEach(function (opt, idx) {
             let legsHtml = '';
@@ -772,7 +772,7 @@
             if (leg.type === 'walk' && leg.from && leg.to) {
                 try {
                     const walkRes = await fetch('/api/maps/walk-route?originLat=' + leg.from.lat +
-                        '&originLng=' + leg.from.lng + '&destLat=' + leg.to.lat + '&destLng=' + leg.to.lng);
+                        '&originLng=' + leg.from.lng + '&destLat=' + leg.to.lat + '&destLng=' + leg.to.lng, { headers: { 'X-Azure-Maps-Proxy': '1' } });
                     const walkData = await walkRes.json();
                     if (walkData.points && walkData.points.length) {
                         leg.walkPath = walkData.points;

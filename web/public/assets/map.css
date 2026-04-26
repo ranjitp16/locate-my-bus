@@ -474,7 +474,7 @@ body { overflow: hidden; }
     font-size: 0.78rem;
     color: var(--text-muted);
 }
-.trip-summary-row a {
+.trip-summary-row button {
     color: var(--accent);
     cursor: pointer;
     text-decoration: none;
@@ -482,6 +482,8 @@ body { overflow: hidden; }
     padding: 6px 10px;
     border-radius: 5px;
     background: var(--surface-alt, rgba(128,128,128,0.1));
+    border: none;
+    font-family: inherit;
     display: inline-block;
     min-width: 44px;
     min-height: 36px;
