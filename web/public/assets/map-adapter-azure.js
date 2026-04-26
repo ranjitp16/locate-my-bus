@@ -535,6 +535,21 @@
                             }
                         });
 
+                        // Hover: show popup on mouseover without displacing the pinned popup
+                        _map.events.add('mouseover', marker, function () {
+                            if (_openPopup !== popup) {
+                                popup.open(_map);
+                                if (_markerPopupOpenFn) _markerPopupOpenFn({ vehicleId: vid });
+                            }
+                        });
+
+                        _map.events.add('mouseout', marker, function () {
+                            // Only close on mouseout if this popup is NOT the pinned one
+                            if (_openPopup !== popup) {
+                                popup.close();
+                            }
+                        });
+
                         _map.events.add('open', popup, function () {
                             if (_markerPopupOpenFn) _markerPopupOpenFn({ vehicleId: vid });
                         });

@@ -184,10 +184,10 @@
     mapAdapter.onMarkerPopupOpen(function () {
         clearInterval(ageTimer);
         ageTimer = setInterval(function () {
-            const el = document.querySelector('.popup-content-container .age-counter, .atlas-popup-content-container .age-counter');
-            if (!el) return;
-            const ts = parseInt(el.dataset.ts, 10);
-            if (Number.isFinite(ts)) el.textContent = String(Math.round((Date.now() - ts) / 1000));
+            document.querySelectorAll('.popup-content-container .age-counter, .atlas-popup-content-container .age-counter').forEach(function (el) {
+                const ts = parseInt(el.dataset.ts, 10);
+                if (Number.isFinite(ts)) el.textContent = String(Math.round((Date.now() - ts) / 1000));
+            });
         }, 1000);
     });
 
