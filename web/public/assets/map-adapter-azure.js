@@ -782,20 +782,12 @@
 
                     var target = stops[closestIdx];
                     var markersRef = _stopMarkers;
-                    var query = userLat + ',' + userLng + ':' + target.lat + ',' + target.lon;
-                    fetch('/api/azure-maps/route/directions/json?api-version=1.0&query=' +
-                        encodeURIComponent(query) + '&travelMode=pedestrian&routeType=shortest', {
-                        headers: { 'X-Azure-Maps-Proxy': '1' }
-                    })
+                    fetch('/api/maps/walk-route?originLat=' + userLat + '&originLng=' + userLng +
+                        '&destLat=' + target.lat + '&destLng=' + target.lon)
                     .then(function (r) { return r.json(); })
                     .then(function (data) {
                         if (gen !== _stopGeneration) return; // stale response
-                        if (!data.routes || !data.routes[0] || !data.routes[0].legs) return;
-                        // Build walking path from route points
-                        var pathPts = [];
-                        data.routes[0].legs.forEach(function (leg) {
-                            leg.points.forEach(function (p) { pathPts.push(p); });
-                        });
+                        var pathPts = data.points || [];
                         if (!pathPts.length) return;
 
                         // For each stop, find its minimum distance to any point on the
@@ -806,7 +798,7 @@
                             if (stops[si].lat == null || stops[si].lon == null) continue;
                             var minDist = Infinity, minPos = Infinity;
                             for (var pi = 0; pi < pathPts.length; pi++) {
-                                var dd = _haversineMeters(stops[si].lat, stops[si].lon, pathPts[pi].latitude, pathPts[pi].longitude);
+                                var dd = _haversineMeters(stops[si].lat, stops[si].lon, pathPts[pi].lat, pathPts[pi].lng);
                                 if (dd < minDist) { minDist = dd; minPos = pi; }
                             }
                             // Stop is "on the path" if within 150m of a path point
@@ -820,14 +812,13 @@
                         if (bestIdx < 0) bestIdx = closestIdx;
 
                         // Draw the walking path as a green SVG overlay
-                        var walkCoords = pathPts.map(function (p) { return [p.longitude, p.latitude]; });
+                        var walkCoords = pathPts.map(function (p) { return [p.lng, p.lat]; });
                         _createWalkSvg(walkCoords);
 
                         if (markersRef[bestIdx]) {
                             // Add walking distance and time to the popup
-                            var summary = data.routes[0].summary;
-                            var meters = summary.lengthInMeters;
-                            var secs = summary.travelTimeInSeconds;
+                            var meters = data.distanceMeters;
+                            var secs = data.durationSeconds;
                             var distText = meters < 1000
                                 ? Math.round(meters) + 'm'
                                 : (meters / 1000).toFixed(1) + 'km';

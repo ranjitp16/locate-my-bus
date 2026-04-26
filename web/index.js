@@ -149,6 +149,79 @@ app.get('/api/azure-maps/{*path}', async (req, res) => {
     }
 });
 
+/* ── Normalized map API endpoints — provider-agnostic response format ──
+   These abstract away the Azure Maps response schema so the frontend
+   only deals with a stable format. Swap the implementation here to
+   change map providers without touching frontend code. */
+
+async function azureFetch(path, params) {
+    const target = new URL('https://atlas.microsoft.com' + path);
+    for (const [k, v] of Object.entries(params)) target.searchParams.set(k, v);
+    target.searchParams.set('subscription-key', process.env.AZURE_MAPS_KEY);
+    const upstream = await fetch(target.toString(), { headers: { 'Accept-Encoding': 'identity' } });
+    if (!upstream.ok) throw new Error('Azure Maps returned ' + upstream.status);
+    return upstream.json();
+}
+
+// Geocoding — returns { results: [{ displayName, lat, lon }] }
+app.get('/api/maps/geocode', async (req, res) => {
+    if (!process.env.AZURE_MAPS_KEY) return res.status(503).json({ error: 'Maps key not configured' });
+    const { query, lat, lon, radius, limit } = req.query;
+    if (!query) return res.status(400).json({ error: 'Missing query param' });
+
+    try {
+        const params = { 'api-version': '1.0', query };
+        if (limit) params.limit = limit;
+        if (lat && lon) { params.lat = lat; params.lon = lon; }
+        if (radius) params.radius = radius;
+
+        const data = await azureFetch('/search/address/json', params);
+        const results = (data.results || []).map(r => ({
+            displayName: r.address?.freeformAddress || query,
+            lat: r.position?.lat,
+            lon: r.position?.lon,
+        }));
+        res.json({ results });
+    } catch (err) {
+        console.error('[maps/geocode]', err.message);
+        res.status(502).json({ error: 'Geocoding failed' });
+    }
+});
+
+// Walking route — returns { points: [{lat, lng}], distanceMeters, durationSeconds }
+app.get('/api/maps/walk-route', async (req, res) => {
+    if (!process.env.AZURE_MAPS_KEY) return res.status(503).json({ error: 'Maps key not configured' });
+    const { originLat, originLng, destLat, destLng } = req.query;
+    if (!originLat || !originLng || !destLat || !destLng) {
+        return res.status(400).json({ error: 'Missing coordinates' });
+    }
+
+    try {
+        const query = originLat + ',' + originLng + ':' + destLat + ',' + destLng;
+        const data = await azureFetch('/route/directions/json', {
+            'api-version': '1.0', query, travelMode: 'pedestrian', routeType: 'shortest',
+        });
+
+        if (!data.routes || !data.routes[0]) {
+            return res.json({ points: [], distanceMeters: 0, durationSeconds: 0 });
+        }
+
+        const points = [];
+        (data.routes[0].legs || []).forEach(leg => {
+            (leg.points || []).forEach(p => points.push({ lat: p.latitude, lng: p.longitude }));
+        });
+        const summary = data.routes[0].summary || {};
+        res.json({
+            points,
+            distanceMeters: summary.lengthInMeters || 0,
+            durationSeconds: summary.travelTimeInSeconds || 0,
+        });
+    } catch (err) {
+        console.error('[maps/walk-route]', err.message);
+        res.status(502).json({ error: 'Route lookup failed' });
+    }
+});
+
 app
     .get('/routes/:agency_id/:running_route', async (req, res) => {
         const { agency_id, running_route } = req.params

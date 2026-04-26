@@ -535,9 +535,7 @@
 
     async function geocodeAddress(query) {
         try {
-            const res = await fetch('/api/azure-maps/search/address/json?api-version=1.0&query=' + encodeURIComponent(query) + '&limit=5&lat=' + userLat + '&lon=' + userLng + '&radius=75000', {
-                headers: { 'X-Azure-Maps-Proxy': '1' }
-            });
+            const res = await fetch('/api/maps/geocode?query=' + encodeURIComponent(query) + '&limit=5&lat=' + userLat + '&lon=' + userLng + '&radius=75000');
             const data = await res.json();
             const results = data.results || [];
             if (!results.length) {
@@ -549,9 +547,9 @@
             results.forEach(function (r) {
                 const item = document.createElement('div');
                 item.className = 'geocode-item';
-                item.textContent = r.address?.freeformAddress || query;
+                item.textContent = r.displayName;
                 item.addEventListener('click', function () {
-                    setDestination(r.position.lat, r.position.lon, item.textContent);
+                    setDestination(r.lat, r.lon, item.textContent);
                     geocodeDropdown.classList.remove('open');
                 });
                 geocodeDropdown.appendChild(item);
@@ -772,22 +770,14 @@
         const enrichedLegs = await Promise.all(opt.legs.map(async function (rawLeg) {
             const leg = Object.assign({}, rawLeg);
             if (leg.type === 'walk' && leg.from && leg.to) {
-                const query = leg.from.lat + ',' + leg.from.lng + ':' + leg.to.lat + ',' + leg.to.lng;
                 try {
-                    const walkRes = await fetch('/api/azure-maps/route/directions/json?api-version=1.0&query=' +
-                        encodeURIComponent(query) + '&travelMode=pedestrian&routeType=shortest', {
-                        headers: { 'X-Azure-Maps-Proxy': '1' }
-                    });
+                    const walkRes = await fetch('/api/maps/walk-route?originLat=' + leg.from.lat +
+                        '&originLng=' + leg.from.lng + '&destLat=' + leg.to.lat + '&destLng=' + leg.to.lng);
                     const walkData = await walkRes.json();
-                    if (walkData.routes && walkData.routes[0] && walkData.routes[0].legs) {
-                        const pts = [];
-                        walkData.routes[0].legs.forEach(function (wl) {
-                            wl.points.forEach(function (p) { pts.push({ lat: p.latitude, lng: p.longitude }); });
-                        });
-                        leg.walkPath = pts;
-                        const summary = walkData.routes[0].summary;
-                        leg.distanceMeters = summary.lengthInMeters;
-                        leg.durationSeconds = summary.travelTimeInSeconds;
+                    if (walkData.points && walkData.points.length) {
+                        leg.walkPath = walkData.points;
+                        leg.distanceMeters = walkData.distanceMeters;
+                        leg.durationSeconds = walkData.durationSeconds;
                     }
                 } catch (e) { console.error('Walk route fetch failed:', e); }
             } else if (leg.type === 'bus' && leg.tripId) {
