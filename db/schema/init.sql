@@ -193,5 +193,4 @@ CREATE INDEX IF NOT EXISTS idx_trip_service            ON public.trip (agency_id
 CREATE INDEX IF NOT EXISTS idx_live_vp_route          ON public.live_vehicle_position (agency_id, route_id);
 CREATE INDEX IF NOT EXISTS idx_live_vp_trip           ON public.live_vehicle_position (agency_id, route_id, trip_id);
 CREATE INDEX IF NOT EXISTS idx_shape_point_shape      ON public.shape_point (agency_id, id);
-CREATE INDEX IF NOT EXISTS idx_calendar_agency        ON public.calendar (agency_id, service_id);
 CREATE INDEX IF NOT EXISTS idx_calendar_date_lookup   ON public.calendar_date (agency_id, date);
