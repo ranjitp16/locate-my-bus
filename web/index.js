@@ -309,6 +309,63 @@ app.get('/api/dashboard/executions/:poll_iteration_id', authMiddleware, async (r
     }
 });
 
+// Public landing-page snapshot: top-line counters + a row per agency.
+// Numbers reflect the current DB state; no auth so the homepage can render them.
+app.get('/api/landing', async (req, res) => {
+    try {
+        const [totalsRes, perAgencyRes] = await Promise.all([
+            pool.query(`
+                SELECT
+                    (SELECT COUNT(*) FROM public.agency)::int                        AS agencies,
+                    (SELECT COUNT(*) FROM public.route)::int                         AS routes,
+                    (SELECT COUNT(*) FROM public.live_vehicle_position)::int         AS buses_live,
+                    (SELECT COUNT(*) FROM public.poll_iteration
+                        WHERE started_at >= NOW() - INTERVAL '24 hours')::int        AS polls_24h,
+                    (SELECT ROUND(
+                        100.0 * SUM(CASE WHEN fe.status = 'error' THEN 1 ELSE 0 END)
+                              / NULLIF(COUNT(*), 0), 1)
+                     FROM public.feed_execution fe
+                     JOIN public.poll_iteration pi ON pi.id = fe.poll_iteration_id
+                     WHERE pi.started_at >= NOW() - INTERVAL '24 hours')             AS error_rate_pct,
+                    (SELECT ROUND(AVG(fe.execution_time_us) / 1000)::int
+                     FROM public.feed_execution fe
+                     JOIN public.poll_iteration pi ON pi.id = fe.poll_iteration_id
+                     WHERE pi.started_at >= NOW() - INTERVAL '24 hours')             AS avg_latency_ms
+            `),
+            pool.query(`
+                SELECT
+                    a.id   AS agency_id,
+                    a.name AS agency_name,
+                    (SELECT COUNT(*) FROM public.route r WHERE r.agency_id = a.id)::int                  AS routes,
+                    (SELECT COUNT(*) FROM public.live_vehicle_position v WHERE v.agency_id = a.id)::int  AS buses_live
+                FROM public.agency a
+                ORDER BY a.name ASC
+            `),
+        ]);
+        const t = totalsRes.rows[0] || {};
+        res.json({
+            totals: {
+                agencies: t.agencies || 0,
+                routes: t.routes || 0,
+                busesLive: t.buses_live || 0,
+                polls24h: t.polls_24h || 0,
+                errorRatePct: t.error_rate_pct == null ? null : Number(t.error_rate_pct),
+                avgLatencyMs: t.avg_latency_ms == null ? null : Number(t.avg_latency_ms),
+            },
+            agencies: perAgencyRes.rows.map((r) => ({
+                id: r.agency_id,
+                name: r.agency_name,
+                routes: r.routes,
+                busesLive: r.buses_live,
+                stale: r.buses_live === 0,
+            })),
+        });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Failed to fetch landing data.' });
+    }
+});
+
 app.get('/api/agencies', async (req, res) => {
     try {
         const { rows } = await pool.query('SELECT * FROM public.agency')

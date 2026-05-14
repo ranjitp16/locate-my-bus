@@ -1,5 +1,7 @@
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useIsDesktop } from '../lib/useMediaQuery';
+import { useTheme } from '../theme/ThemeProvider';
 import { BrandMark } from '../components/BrandMark';
 import { BusMark, BusIconG } from '../components/BusGlyph';
 import { LiveDot, Tag } from '../components/atoms';
@@ -7,18 +9,52 @@ import { IconArrowRight, IconPin, IconRoute } from '../components/Icons';
 import { MiniMap } from '../components/MiniMap';
 import { DesktopShell } from '../components/DesktopShell';
 
-const ROUTE_TAPE = [
-  '1', '2', '4', '7', '10', '14', '20', '21', '24', '25',
-  '28', '32', '41', '52', '57', '63', '85', '90', 'M1', 'M2',
-];
+type LandingTotals = {
+  agencies: number;
+  routes: number;
+  busesLive: number;
+  polls24h: number;
+  errorRatePct: number | null;
+  avgLatencyMs: number | null;
+};
+type LandingAgency = {
+  id: string;
+  name: string;
+  routes: number;
+  busesLive: number;
+  stale: boolean;
+};
+type LandingData = { totals: LandingTotals; agencies: LandingAgency[] };
+
+function useLandingData(): LandingData | null {
+  const [data, setData] = useState<LandingData | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/landing')
+      .then((r) => r.json())
+      .then((d: LandingData) => { if (!cancelled) setData(d); })
+      .catch((e) => console.error('landing data load failed', e));
+    return () => { cancelled = true; };
+  }, []);
+  return data;
+}
+
+function fmtInt(n: number): string {
+  return n.toLocaleString('en-US');
+}
+function pluralAgency(n: number): string {
+  return n === 1 ? 'agency' : 'agencies';
+}
 
 export default function Landing() {
   const isDesktop = useIsDesktop();
-  return isDesktop ? <DesktopLanding /> : <MobileLanding />;
+  const data = useLandingData();
+  return isDesktop ? <DesktopLanding data={data} /> : <MobileLanding data={data} />;
 }
 
 // ── Mobile ───────────────────────────────────────────────────
-function MobileLanding() {
+function MobileLanding({ data }: { data: LandingData | null }) {
+  const { theme, toggle } = useTheme();
   return (
     <div style={{ minHeight: '100%', background: 'var(--bg)' }}>
       <div style={{ maxWidth: 480, margin: '0 auto', paddingBottom: 60 }}>
@@ -26,19 +62,22 @@ function MobileLanding() {
         <div style={{ padding: '24px 20px 0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <BrandMark />
           <button
+            onClick={toggle}
+            aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}
             style={{
-              padding: '6px 10px',
+              padding: '7px 12px',
               borderRadius: 999,
-              background: 'transparent',
+              background: 'var(--surface)',
               border: '1px solid var(--border)',
-              color: 'var(--text-soft)',
-              fontFamily: 'var(--font-mono)',
-              fontSize: 10,
-              fontWeight: 700,
-              letterSpacing: 0.4,
+              color: 'var(--text)',
+              fontSize: 12,
+              fontWeight: 600,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
             }}
           >
-            EN
+            {theme === 'dark' ? '☾' : '☀'} {theme === 'dark' ? 'Dark' : 'Light'}
           </button>
         </div>
 
@@ -59,7 +98,9 @@ function MobileLanding() {
               className="mono"
               style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1.2, textTransform: 'uppercase', color: 'var(--text-muted)' }}
             >
-              Live · 5 cities
+              {data
+                ? `Live · ${data.totals.agencies} ${pluralAgency(data.totals.agencies)}`
+                : 'Live'}
             </span>
           </div>
           <h1
@@ -109,7 +150,7 @@ function MobileLanding() {
             Open the map
           </Link>
           <Link
-            to="/view-map"
+            to="/view-map?mode=plan"
             style={{
               padding: '14px 16px',
               background: 'transparent',
@@ -131,7 +172,7 @@ function MobileLanding() {
         </div>
 
         <div style={{ padding: '20px 20px 0' }}>
-          <TodayStrip />
+          <TodayStrip data={data} />
         </div>
 
         {/* Story */}
@@ -160,11 +201,7 @@ function MobileLanding() {
           </p>
         </div>
 
-        <div style={{ marginTop: 22 }}>
-          <RouteTape />
-        </div>
-
-        <div style={{ padding: '18px 20px 0' }}>
+        <div style={{ padding: '28px 20px 0' }}>
           <div
             style={{
               paddingTop: 18,
@@ -177,7 +214,17 @@ function MobileLanding() {
               fontFamily: 'var(--font-mono)',
             }}
           >
-            <span>by Ranjit Pandey</span>
+            <span>
+              by{' '}
+              <a
+                href="https://ranjitpandey.dev"
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ color: 'var(--text-soft)', textDecoration: 'none' }}
+              >
+                Ranjit Pandey
+              </a>
+            </span>
             <Link to="/dash/agencies" style={{ color: 'var(--text-soft)', textDecoration: 'none' }}>
               Manage agencies →
             </Link>
@@ -203,19 +250,6 @@ function LiveTrackerHero() {
     >
       <div style={{ height: 240, position: 'relative' }}>
         <MiniMap busCount={3} showRoute />
-
-        <div
-          style={{
-            position: 'absolute',
-            bottom: 40,
-            right: 70,
-            width: 14,
-            height: 14,
-            borderRadius: '50%',
-            background: '#3B82F6',
-            boxShadow: '0 0 0 4px rgba(59,130,246,0.25), 0 0 0 12px rgba(59,130,246,0.1)',
-          }}
-        />
 
         <div
           style={{
@@ -277,7 +311,7 @@ function LiveTrackerHero() {
         }}
       >
         <div style={{ flexShrink: 0 }}>
-          <BusMark size={48} route="24" live />
+          <BusMark size={48} route="24" />
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div
@@ -329,7 +363,8 @@ function LiveTrackerHero() {
   );
 }
 
-function TodayStrip() {
+function TodayStrip({ data }: { data: LandingData | null }) {
+  const t = data?.totals;
   return (
     <div
       style={{
@@ -349,9 +384,9 @@ function TodayStrip() {
         <LiveDot label="Live" />
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14 }}>
-        <TickerStat value="142" label="Buses tracked" />
-        <TickerStat value="779" label="Routes covered" />
-        <TickerStat value="5" label="Agencies" />
+        <TickerStat value={t ? fmtInt(t.busesLive) : '—'} label="Buses live" />
+        <TickerStat value={t ? fmtInt(t.routes) : '—'} label="Routes" />
+        <TickerStat value={t ? fmtInt(t.agencies) : '—'} label={t && t.agencies === 1 ? 'Agency' : 'Agencies'} />
       </div>
     </div>
   );
@@ -373,49 +408,9 @@ function TickerStat({ value, label }: { value: string; label: string }) {
   );
 }
 
-function RouteTape() {
-  const doubled = [...ROUTE_TAPE, ...ROUTE_TAPE];
-  return (
-    <div
-      style={{
-        position: 'relative',
-        overflow: 'hidden',
-        borderTop: '1px solid var(--border)',
-        borderBottom: '1px solid var(--border)',
-        padding: '10px 0',
-        background: 'var(--bg-elevated)',
-      }}
-    >
-      <div style={{ display: 'flex', gap: 8, width: 'max-content', animation: 'lmb-tape 28s linear infinite' }}>
-        {doubled.map((r, i) => (
-          <span
-            key={i}
-            className="mono"
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 6,
-              padding: '5px 11px',
-              borderRadius: 999,
-              background: i % 5 === 0 ? 'var(--signal)' : 'var(--surface)',
-              color: i % 5 === 0 ? 'var(--signal-ink)' : 'var(--text-soft)',
-              border: '1px solid var(--border)',
-              fontSize: 12,
-              fontWeight: 700,
-              whiteSpace: 'nowrap',
-            }}
-          >
-            <BusIconG size={11} />
-            {r}
-          </span>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 // ── Desktop ──────────────────────────────────────────────────
-function DesktopLanding() {
+function DesktopLanding({ data }: { data: LandingData | null }) {
+  const t = data?.totals;
   return (
     <DesktopShell>
       {/* Hero */}
@@ -457,7 +452,9 @@ function DesktopLanding() {
                 color: 'var(--text-muted)',
               }}
             >
-              Live · 5 cities · 779 routes
+              {t
+                ? `Live · ${t.agencies} ${pluralAgency(t.agencies)} · ${fmtInt(t.routes)} routes`
+                : 'Live'}
             </span>
           </div>
 
@@ -517,7 +514,7 @@ function DesktopLanding() {
               <IconArrowRight size={16} />
             </Link>
             <Link
-              to="/view-map"
+              to="/view-map?mode=plan"
               style={{
                 padding: '16px 22px',
                 background: 'transparent',
@@ -548,9 +545,13 @@ function DesktopLanding() {
               gap: 36,
             }}
           >
-            <TrustStat value="156,420" label="Polls today" />
-            <TrustStat value="0.0%" label="Error rate" tone="live" />
-            <TrustStat value="< 15s" label="Latency" />
+            <TrustStat value={t ? fmtInt(t.polls24h) : '—'} label="Polls / 24h" />
+            <TrustStat
+              value={t && t.errorRatePct != null ? `${t.errorRatePct.toFixed(1)}%` : '—'}
+              label="Error rate"
+              tone={t && (t.errorRatePct ?? 0) === 0 ? 'live' : 'neutral'}
+            />
+            <TrustStat value="15s" label="Refresh" />
             <TrustStat value="MIT" label="Open source" />
           </div>
         </div>
@@ -573,24 +574,58 @@ function DesktopLanding() {
           >
             Tracked agencies
           </div>
-          <Link
-            to="/dash/agencies"
+          <a
+            href="mailto:contact@ranjitpandey.dev?subject=Locate%20My%20Bus%20%E2%80%94%20agency%20onboarding"
             style={{ fontSize: 12, color: 'var(--text-muted)', textDecoration: 'none', fontFamily: 'var(--font-mono)' }}
           >
-            Add yours →
-          </Link>
+            Get yours added →
+          </a>
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10 }}>
-          <AgencyMini name="Halifax Transit" buses="142" routes="87" />
-          <AgencyMini name="TTC Toronto" buses="1,820" routes="240" />
-          <AgencyMini name="TransLink" buses="1,470" routes="215" />
-          <AgencyMini name="London Transit" buses="78" routes="42" />
-          <AgencyMini name="ETS Edmonton" buses="—" routes="195" stale />
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 10 }}>
+          {data
+            ? data.agencies.map((a) => (
+                <AgencyMini
+                  key={a.id}
+                  name={a.name}
+                  buses={a.stale ? '—' : fmtInt(a.busesLive)}
+                  routes={fmtInt(a.routes)}
+                  stale={a.stale}
+                />
+              ))
+            : Array.from({ length: 4 }).map((_, i) => (
+                <AgencyMini key={i} name="…" buses="—" routes="—" />
+              ))}
         </div>
       </div>
 
-      <div style={{ marginTop: 36 }}>
-        <RouteTape />
+      <div style={{ padding: '36px 64px 28px', maxWidth: 1440, margin: '0 auto' }}>
+        <div
+          style={{
+            paddingTop: 20,
+            borderTop: '1px solid var(--border)',
+            fontSize: 12,
+            color: 'var(--text-muted)',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            fontFamily: 'var(--font-mono)',
+          }}
+        >
+          <span>
+            by{' '}
+            <a
+              href="https://ranjitpandey.dev"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ color: 'var(--text-soft)', textDecoration: 'none' }}
+            >
+              Ranjit Pandey
+            </a>
+          </span>
+          <Link to="/dash/agencies" style={{ color: 'var(--text-soft)', textDecoration: 'none' }}>
+            Manage agencies →
+          </Link>
+        </div>
       </div>
     </DesktopShell>
   );
@@ -749,20 +784,6 @@ function DesktopTrackerHero() {
       <div
         style={{
           position: 'absolute',
-          top: '50%',
-          left: '54%',
-          width: 18,
-          height: 18,
-          borderRadius: '50%',
-          background: '#3B82F6',
-          boxShadow: '0 0 0 5px rgba(59,130,246,0.25), 0 0 0 14px rgba(59,130,246,0.12)',
-          transform: 'translate(-50%, -50%)',
-        }}
-      />
-
-      <div
-        style={{
-          position: 'absolute',
           bottom: 20,
           left: 20,
           right: 20,
@@ -776,7 +797,7 @@ function DesktopTrackerHero() {
           boxShadow: '0 12px 28px rgba(0,0,0,0.32)',
         }}
       >
-        <BusMark size={60} route="24" live />
+        <BusMark size={60} route="24" />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div
             className="mono"

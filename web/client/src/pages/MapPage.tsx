@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useTheme } from '../theme/ThemeProvider';
-import { BusIconG } from '../components/BusGlyph';
-import { busMarkSvgString } from '../components/busMarkSvgString';
+import { BusIconG, BusMark } from '../components/BusGlyph';
 import { FAB, LiveDot, Tag } from '../components/atoms';
 import {
   IconArrowLeft, IconChevron, IconGear, IconLayers, IconLocation, IconPin,
@@ -17,6 +17,7 @@ type AtlasNs = typeof import('azure-maps-control');
 
 export default function MapPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { theme } = useTheme();
 
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
@@ -32,7 +33,9 @@ export default function MapPage() {
   const [buses, setBuses] = useState<Vehicle[]>([]);
   const [pinnedVid, setPinnedVidRaw] = useState<string | null>(null);
   const [pollPaused, setPollPaused] = useState(false);
-  const [sheetMode, setSheetMode] = useState<'live' | 'plan'>('live');
+  const [sheetMode, setSheetMode] = useState<'live' | 'plan'>(
+    searchParams.get('mode') === 'plan' ? 'plan' : 'live'
+  );
   const [lastPollAt, setLastPollAt] = useState<number>(() => Date.now());
 
   const setPinnedVid = useCallback((vid: string | null) => setPinnedVidRaw(vid), []);
@@ -128,7 +131,10 @@ export default function MapPage() {
     };
   }, [selectedAgency, selectedRoute, pollPaused]);
 
-  // ── Sync marker positions (create/move/remove) ─────────────
+  // ── Sync markers (create/move/re-render/remove) ────────────
+  // One effect handles position, heading, pinned state, and lifecycle. Always
+  // re-renders innerHTML so bearing changes from the poll are reflected; cost
+  // is small relative to the 15s polling cadence.
   useEffect(() => {
     const map = mapInstanceRef.current;
     const atlas = atlasRef.current;
@@ -139,24 +145,35 @@ export default function MapPage() {
 
     for (const bus of buses) {
       seen.add(bus.vehicle_id);
-      const existing = markersRef.current.get(bus.vehicle_id);
+      const pinned = bus.vehicle_id === pinnedVid;
+      const bearing = bus.bearing != null ? Number(bus.bearing) : undefined;
+      const position: [number, number] = [Number(bus.lon), Number(bus.lat)];
+      const html = renderToStaticMarkup(
+        <BusMark
+          size={42}
+          route={routeId}
+          live
+          pinned={pinned}
+          bearing={bearing}
+          idSeed={`v${bus.vehicle_id}`}
+        />
+      );
 
+      const existing = markersRef.current.get(bus.vehicle_id);
       if (existing) {
-        existing.marker.setOptions({ position: [Number(bus.lon), Number(bus.lat)] });
+        existing.marker.setOptions({ position });
+        existing.el.innerHTML = html;
       } else {
         const wrap = document.createElement('div');
         wrap.dataset.vid = bus.vehicle_id;
         wrap.style.cursor = 'pointer';
-        wrap.innerHTML = busMarkSvgString({ size: 42, route: routeId, live: true });
+        wrap.innerHTML = html;
         wrap.addEventListener('click', (e) => {
           e.stopPropagation();
           const vid = (e.currentTarget as HTMLDivElement).dataset.vid;
           if (vid) setPinnedVid(vid);
         });
-        const marker = new atlas.HtmlMarker({
-          htmlContent: wrap,
-          position: [Number(bus.lon), Number(bus.lat)],
-        });
+        const marker = new atlas.HtmlMarker({ htmlContent: wrap, position });
         map.markers.add(marker);
         markersRef.current.set(bus.vehicle_id, { marker, el: wrap });
       }
@@ -168,20 +185,7 @@ export default function MapPage() {
         markersRef.current.delete(vid);
       }
     }
-  }, [buses, mapReady, selectedRoute, setPinnedVid]);
-
-  // ── Toggle pinned visual on whichever markers changed ──────
-  useEffect(() => {
-    if (!selectedRoute) return;
-    const routeId = selectedRoute.id;
-    for (const [vid, entry] of markersRef.current.entries()) {
-      const pinned = vid === pinnedVid;
-      const was = entry.el.dataset.pinned === '1';
-      if (pinned === was) continue;
-      entry.el.dataset.pinned = pinned ? '1' : '';
-      entry.el.innerHTML = busMarkSvgString({ size: 42, route: routeId, live: true, pinned });
-    }
-  }, [pinnedVid, selectedRoute, buses]);
+  }, [buses, pinnedVid, mapReady, selectedRoute, setPinnedVid]);
 
   // ── Clean markers when route changes ───────────────────────
   useEffect(() => {

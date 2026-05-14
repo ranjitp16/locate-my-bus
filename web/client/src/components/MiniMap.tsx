@@ -11,6 +11,10 @@ type MiniMapProps = {
 
 // Stylized SVG map tile used as decoration on Landing. Themed via CSS vars.
 // The real interactive map (Azure Maps SDK) is wired up on the Map page.
+//
+// Route geometry follows the road grid (only travels along the major/minor
+// stroke lines below), so the route line lies *on* roads instead of cutting
+// across blocks. Buses are placed at exact points along that polyline.
 export function MiniMap({
   width = '100%',
   height = '100%',
@@ -32,24 +36,30 @@ export function MiniMap({
     'M0 60 H390', 'M0 180 H390', 'M0 250 H390', 'M0 280 H390', 'M0 410 H390', 'M0 470 H390', 'M0 535 H390',
     'M30 0 V600', 'M120 0 V600', 'M160 0 V600', 'M195 0 V600', 'M295 0 V600', 'M340 0 V600',
   ];
-  const diag = [
-    'M0 600 Q140 420 200 320 T390 100',
-    'M0 200 Q120 240 240 280 T390 380',
+
+  // Bus route: each vertex sits on a road; segments are pure H or V so the
+  // line visibly hugs the grid. Endpoints extend past the viewBox so the
+  // route reads as a section of a longer trip (not something that abruptly
+  // ends mid-card).
+  const routeVertices: [number, number][] = [
+    [-40, 110],
+    [195, 110],
+    [195, 410],
+    [430, 410],
   ];
+  const routePath =
+    'M' + routeVertices.map(([x, y]) => `${x} ${y}`).join(' L');
 
-  const water = 'M260 380 Q300 410 340 400 Q380 390 390 420 L390 540 Q360 555 320 540 Q280 530 260 510 Z';
-  const park = 'M30 380 Q60 360 100 380 Q120 410 90 440 Q50 460 30 430 Z';
-  const routePath = 'M40 140 Q120 130 180 180 Q230 230 220 320 Q210 410 130 430 Q70 440 50 380 Q40 320 80 290';
-
-  const busOffsets = busCount === 1 ? [0.4] : busCount === 2 ? [0.25, 0.75] : [0.18, 0.5, 0.82];
-
-  // Precomputed samples along the route path for bus placement.
-  const samples: [number, number][] = [
-    [40, 140], [70, 135], [105, 138], [140, 150], [170, 170],
-    [195, 195], [215, 230], [225, 270], [222, 310], [218, 350],
-    [212, 380], [195, 405], [165, 420], [130, 430], [95, 432],
-    [70, 420], [55, 400], [50, 380], [55, 350], [70, 320],
+  // Hardcoded bus positions + heading on the route. Heading is degrees where
+  // 0=north, 90=east, 180=south, 270=west. The bus glyph faces east by
+  // default, so we rotate by (angle − 90) when painting. All three positions
+  // sit inside the visible slice of the viewBox at both card aspect ratios.
+  const allBuses: { x: number; y: number; angle: number }[] = [
+    { x: 195, y: 300, angle: 180 },  // live, on the vertical segment heading south
+    { x: 195, y: 200, angle: 0 },    // upper, on the vertical segment heading north
+    { x: 295, y: 410, angle: 90 },   // lower right, on the horizontal segment heading east
   ];
+  const buses = allBuses.slice(0, busCount).map((b, i) => ({ ...b, key: i }));
 
   return (
     <div style={{ position: 'relative', width, height, overflow: 'hidden', background: 'var(--map-land)' }}>
@@ -59,17 +69,9 @@ export function MiniMap({
         style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', display: 'block' }}
       >
         <rect x="0" y="0" width={W} height={H} fill="var(--map-land)" />
-        <rect x="70" y="110" width="170" height="230" fill="var(--map-land-2)" opacity="0.5" />
-        <rect x="240" y="0" width="150" height="110" fill="var(--map-land-2)" opacity="0.4" />
-
-        <path d={park} fill="var(--map-park)" />
-        <path d={water} fill="var(--map-water)" />
 
         {minors.map((d, i) => (
           <path key={`mn-${i}`} d={d} stroke="var(--map-road)" strokeWidth="2.5" fill="none" />
-        ))}
-        {diag.map((d, i) => (
-          <path key={`dg-${i}`} d={d} stroke="var(--map-road)" strokeWidth="2.5" fill="none" />
         ))}
         {majors.map((m, i) => (
           <path key={`mj-${i}`} d={m.d} stroke="var(--map-road-mj)" strokeWidth={m.w} fill="none" />
@@ -86,34 +88,35 @@ export function MiniMap({
         </text>
 
         {showRoute && (
-          <>
-            <path d={routePath} stroke="var(--signal)" strokeWidth="4.5" fill="none" strokeLinecap="round" opacity="0.25" />
-            <path
-              d={routePath}
-              stroke="var(--signal)"
-              strokeWidth="3"
-              fill="none"
-              strokeLinecap="round"
-              strokeDasharray="10 6"
-              style={animate ? { animation: 'lmb-dash 2.4s linear infinite' } : undefined}
-            />
-          </>
+          <path
+            d={routePath}
+            stroke="var(--signal)"
+            strokeWidth="3"
+            fill="none"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeDasharray="10 6"
+            style={animate ? { animation: 'lmb-dash 2.4s linear infinite' } : undefined}
+          />
+        )}
+
+        {showBuses && buses.length > 0 && (
+          <circle
+            cx={buses[0].x}
+            cy={buses[0].y}
+            r={26}
+            fill="color-mix(in oklab, var(--signal) 32%, transparent)"
+          />
         )}
 
         {showBuses &&
-          busOffsets.map((t, i) => {
-            const idx = Math.min(samples.length - 1, Math.floor(t * (samples.length - 1)));
-            const next = samples[Math.min(samples.length - 1, idx + 1)];
-            const [x, y] = samples[idx];
-            const dir: 'left' | 'right' = next[0] >= x ? 'right' : 'left';
-            return (
-              <foreignObject key={i} x={x - 22} y={y - 16} width="44" height="32" overflow="visible">
-                <div style={{ width: 44, height: 32, position: 'relative' }}>
-                  <BusMark size={42} route="24" live={i === 0} dir={dir} />
-                </div>
-              </foreignObject>
-            );
-          })}
+          buses.map((b) => (
+            <foreignObject key={b.key} x={b.x - 22} y={b.y - 16} width="44" height="32" overflow="visible">
+              <div style={{ width: 44, height: 32, position: 'relative' }}>
+                <BusMark size={42} route="24" bearing={b.angle} />
+              </div>
+            </foreignObject>
+          ))}
       </svg>
     </div>
   );

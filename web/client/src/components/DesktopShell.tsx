@@ -71,7 +71,7 @@ export function DesktopNav({ rightSlot }: DesktopNavProps) {
             <IconHome size={14} />
             Home
           </NavTab>
-          <NavTab to="/view-map" badge="3 live">
+          <NavTab to="/view-map">
             <BusIconG size={14} />
             Live map
           </NavTab>

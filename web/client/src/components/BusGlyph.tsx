@@ -2,19 +2,33 @@ import { useId } from 'react';
 
 type Direction = 'left' | 'right';
 
-type BusMarkProps = {
+export type BusMarkProps = {
   size?: number;
   route?: string | number;
   pinned?: boolean;
   live?: boolean;
   dir?: Direction;
+  // Heading in degrees, compass-style (0 = north, 90 = east, 180 = south,
+  // 270 = west). The glyph faces east by default, so we rotate by
+  // (bearing − 90). When set, `bearing` takes precedence over `dir`.
+  bearing?: number;
+  // Override the gradient id prefix. Pass a stable, document-unique value
+  // (e.g. a vehicle id) when rendering many BusMarks as separate root SVGs
+  // via renderToStaticMarkup, so their gradient definitions don't collide.
+  idSeed?: string;
 };
 
 // Side-view bus illustration. Picks up --signal so it follows the accent.
 // Used as the map marker and as decoration in cards/lists.
-export function BusMark({ size = 38, route, pinned = false, live = false, dir = 'right' }: BusMarkProps) {
-  const flip = dir === 'left' ? 'scale(-1, 1) translate(-60, 0)' : undefined;
-  const id = useId().replace(/:/g, '');
+export function BusMark({ size = 38, route, pinned = false, live = false, dir = 'right', bearing, idSeed }: BusMarkProps) {
+  const reactId = useId();
+  const id = (idSeed ?? reactId).replace(/:/g, '');
+  const bodyTransform =
+    bearing != null
+      ? `rotate(${bearing - 90} 30 22)`
+      : dir === 'left'
+        ? 'scale(-1, 1) translate(-60, 0)'
+        : undefined;
 
   return (
     <svg width={size} height={size * (40 / 60)} viewBox="0 0 60 40" overflow="visible">
@@ -36,7 +50,7 @@ export function BusMark({ size = 38, route, pinned = false, live = false, dir = 
         />
       )}
 
-      <g transform={flip}>
+      <g transform={bodyTransform}>
         <ellipse cx="30" cy="38" rx="22" ry="2" fill="rgba(0,0,0,0.35)" />
 
         <rect
@@ -59,21 +73,6 @@ export function BusMark({ size = 38, route, pinned = false, live = false, dir = 
         <rect x="40" y="9" width="6" height="18" rx="1.5" fill="var(--signal-ink)" fillOpacity="0.18" />
         <rect x="42.4" y="11" width="1" height="14" fill="var(--signal-ink)" opacity="0.3" />
 
-        {route != null && (
-          <text
-            x="22"
-            y="26.5"
-            textAnchor="middle"
-            fontFamily="'JetBrains Mono', monospace"
-            fontSize="9"
-            fontWeight="800"
-            fill="var(--signal-ink)"
-            letterSpacing="0.5"
-          >
-            {route}
-          </text>
-        )}
-
         <circle cx="55" cy="14" r="1.6" fill="#FFE9A8" />
         <circle cx="55" cy="14" r="0.7" fill="#FFF7E0" />
 
@@ -84,6 +83,22 @@ export function BusMark({ size = 38, route, pinned = false, live = false, dir = 
         <circle cx="44" cy="32" r="2.2" fill="var(--signal-ink)" opacity="0.7" />
         <circle cx="44" cy="32" r="1" fill="#10131A" />
       </g>
+
+      {/* Route number stays un-rotated so it always reads horizontally on top of the bus. */}
+      {route != null && (
+        <text
+          x="30"
+          y="25"
+          textAnchor="middle"
+          fontFamily="'JetBrains Mono', monospace"
+          fontSize="9"
+          fontWeight="800"
+          fill="var(--signal-ink)"
+          letterSpacing="0.5"
+        >
+          {route}
+        </text>
+      )}
 
       {pinned && (
         <circle cx="50" cy="6" r="5" fill="var(--signal-ink)" stroke="var(--signal)" strokeWidth="2" />
