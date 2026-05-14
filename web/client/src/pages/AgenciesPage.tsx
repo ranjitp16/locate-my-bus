@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useIsDesktop } from '../lib/useMediaQuery';
+import { useLandingData, type LandingAgency } from '../lib/useLandingData';
 import { DesktopShell } from '../components/DesktopShell';
+import { MobileNavSheet } from '../components/MobileNavSheet';
 import { Tag } from '../components/atoms';
 import {
-  IconActivity, IconArrowLeft, IconExternal, IconPlus, IconRefresh, IconTrash,
+  IconArrowLeft, IconCheck, IconExternal, IconPlus, IconRefresh, IconTrash,
 } from '../components/Icons';
 import type { Agency } from '../lib/azureMaps';
 
@@ -13,20 +15,32 @@ const ACCESS_KEY_STORAGE = 'dash-access-key';
 export default function AgenciesPage() {
   const isDesktop = useIsDesktop();
 
-  const [agencies, setAgencies] = useState<Agency[]>([]);
+  // `null` = still loading; `[]` = loaded but empty.
+  const [agencies, setAgencies] = useState<Agency[] | null>(null);
   const [accessKey, setAccessKey] = useState<string>(() =>
     typeof window === 'undefined' ? '' : window.sessionStorage.getItem(ACCESS_KEY_STORAGE) ?? ''
   );
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [refreshTick, setRefreshTick] = useState(0);
+
+  const landing = useLandingData(refreshTick);
+  const statsById = useMemo(() => {
+    const m = new Map<string, LandingAgency>();
+    for (const a of landing?.agencies ?? []) m.set(a.id, a);
+    return m;
+  }, [landing]);
 
   const reload = useCallback(async () => {
     try {
       const r = await fetch('/api/agencies');
       const data: Agency[] = await r.json();
       setAgencies(data);
+      setRefreshTick((n) => n + 1);
     } catch (e) {
       console.error('agencies load failed', e);
+      setAgencies([]);
     }
   }, []);
 
@@ -39,6 +53,13 @@ export default function AgenciesPage() {
     else window.sessionStorage.removeItem(ACCESS_KEY_STORAGE);
   }, [accessKey]);
 
+  // Auto-dismiss success messages — error stays until user acts.
+  useEffect(() => {
+    if (!success) return;
+    const id = window.setTimeout(() => setSuccess(null), 4000);
+    return () => window.clearTimeout(id);
+  }, [success]);
+
   const runAuthed = async (label: string, doFetch: () => Promise<Response>) => {
     if (!accessKey) {
       setError(`Enter the access key to ${label}.`);
@@ -46,6 +67,7 @@ export default function AgenciesPage() {
     }
     setBusy(true);
     setError(null);
+    setSuccess(null);
     try {
       const r = await doFetch();
       if (r.status === 401) {
@@ -67,10 +89,13 @@ export default function AgenciesPage() {
     const r = await runAuthed('delete this agency', () =>
       fetch(`/api/agencies/delete/${id}`, { method: 'DELETE', headers: { 'x-access-key': accessKey } })
     );
-    if (r) await reload();
+    if (r) {
+      await reload();
+      setSuccess('Agency removed.');
+    }
   };
 
-  const onAdd = async (form: { rt: string; stat: string; key: string }) => {
+  const onAdd = async (form: { rt: string; stat: string; key: string }): Promise<boolean> => {
     const r = await runAuthed('onboard an agency', () =>
       fetch('/api/agencies/add', {
         method: 'POST',
@@ -82,22 +107,30 @@ export default function AgenciesPage() {
         }),
       })
     );
-    if (r) await reload();
+    if (r) {
+      await reload();
+      setSuccess('Agency onboarded — daemon will pick it up on the next poll.');
+      return true;
+    }
+    return false;
   };
 
   const onRestartDaemon = async () => {
     if (!window.confirm('Restart the daemon container?')) return;
-    await runAuthed('restart the daemon', () =>
+    const r = await runAuthed('restart the daemon', () =>
       fetch('/api/daemon/kill', { method: 'POST', headers: { 'x-access-key': accessKey } })
     );
+    if (r) setSuccess('Daemon restart triggered.');
   };
 
   const body = (
     <AgenciesBody
       agencies={agencies}
+      statsById={statsById}
       accessKey={accessKey}
       setAccessKey={setAccessKey}
       error={error}
+      success={success}
       busy={busy}
       onDelete={onDelete}
       onAdd={onAdd}
@@ -147,44 +180,45 @@ export default function AgenciesPage() {
 
 // ── Inner content (shared across mobile + desktop) ─────────
 function AgenciesBody(props: {
-  agencies: Agency[];
+  agencies: Agency[] | null;
+  statsById: Map<string, LandingAgency>;
   accessKey: string;
   setAccessKey: (v: string) => void;
   error: string | null;
+  success: string | null;
   busy: boolean;
   onDelete: (id: string) => void;
-  onAdd: (form: { rt: string; stat: string; key: string }) => void;
+  onAdd: (form: { rt: string; stat: string; key: string }) => Promise<boolean>;
   onRestartDaemon: () => void;
 }) {
+  const count = props.agencies?.length ?? 0;
   return (
     <>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 8, marginTop: 14 }}>
-        <StatMini value={String(props.agencies.length)} label="Agencies onboarded" />
+        <StatMini
+          value={props.agencies == null ? '—' : String(count)}
+          label={count === 1 ? 'Agency onboarded' : 'Agencies onboarded'}
+        />
       </div>
 
       <AccessKeyRow value={props.accessKey} onChange={props.setAccessKey} />
 
       {props.error && (
-        <div
-          style={{
-            marginTop: 12,
-            padding: '10px 12px',
-            borderRadius: 10,
-            border: '1px solid var(--hot)',
-            background: 'color-mix(in oklab, var(--hot) 8%, var(--surface))',
-            color: 'var(--hot)',
-            fontFamily: 'var(--font-mono)',
-            fontSize: 11,
-            fontWeight: 700,
-          }}
-        >
-          {props.error}
-        </div>
+        <Banner tone="hot">{props.error}</Banner>
+      )}
+      {props.success && (
+        <Banner tone="live">
+          <IconCheck size={12} /> {props.success}
+        </Banner>
       )}
 
       <SectionLabel>Existing agencies</SectionLabel>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {props.agencies.length === 0 && (
+        {props.agencies == null && <>
+          <AgencyCardSkeleton />
+          <AgencyCardSkeleton />
+        </>}
+        {props.agencies != null && props.agencies.length === 0 && (
           <div
             className="mono"
             style={{ fontSize: 12, color: 'var(--text-muted)', padding: '20px 0', textAlign: 'center' }}
@@ -192,14 +226,44 @@ function AgenciesBody(props: {
             No agencies yet.
           </div>
         )}
-        {props.agencies.map((a) => (
-          <AgencyCard key={a.id} agency={a} onDelete={() => props.onDelete(a.id)} disabled={props.busy} />
+        {props.agencies?.map((a) => (
+          <AgencyCard
+            key={a.id}
+            agency={a}
+            stats={props.statsById.get(a.id)}
+            onDelete={() => props.onDelete(a.id)}
+            disabled={props.busy}
+          />
         ))}
       </div>
 
       <SectionLabel>Add a new agency</SectionLabel>
       <AddAgencyForm onSubmit={props.onAdd} busy={props.busy} />
     </>
+  );
+}
+
+function Banner({ tone, children }: { tone: 'hot' | 'live'; children: React.ReactNode }) {
+  const color = tone === 'hot' ? 'var(--hot)' : 'var(--live)';
+  return (
+    <div
+      style={{
+        marginTop: 12,
+        padding: '10px 12px',
+        borderRadius: 10,
+        border: `1px solid ${color}`,
+        background: `color-mix(in oklab, ${color} 8%, var(--surface))`,
+        color,
+        fontFamily: 'var(--font-mono)',
+        fontSize: 11,
+        fontWeight: 700,
+        display: 'flex',
+        alignItems: 'center',
+        gap: 6,
+      }}
+    >
+      {children}
+    </div>
   );
 }
 
@@ -274,28 +338,7 @@ function MobileHeader({ onRestart, busy }: { onRestart: () => void; busy: boolea
         <IconRefresh size={11} />
         Restart
       </button>
-      <Link
-        to="/dash/monitor"
-        style={{
-          padding: '6px 10px',
-          borderRadius: 8,
-          background: 'transparent',
-          border: '1px solid var(--border)',
-          color: 'var(--text)',
-          fontFamily: 'var(--font-mono)',
-          fontSize: 10,
-          fontWeight: 700,
-          letterSpacing: 0.4,
-          textTransform: 'uppercase',
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: 4,
-          textDecoration: 'none',
-        }}
-      >
-        <IconActivity size={11} />
-        Monitor
-      </Link>
+      <MobileNavSheet />
     </div>
   );
 }
@@ -387,7 +430,20 @@ function AccessKeyRow({ value, onChange }: { value: string; onChange: (v: string
   );
 }
 
-function AgencyCard({ agency, onDelete, disabled }: { agency: Agency; onDelete: () => void; disabled: boolean }) {
+function AgencyCard({
+  agency,
+  stats,
+  onDelete,
+  disabled,
+}: {
+  agency: Agency;
+  stats: LandingAgency | undefined;
+  onDelete: () => void;
+  disabled: boolean;
+}) {
+  const isStale = stats?.stale ?? false;
+  const errorRate = stats?.errorRatePct;
+  const errorTone: 'hot' | 'neutral' = errorRate != null && errorRate > 1 ? 'hot' : 'neutral';
   return (
     <div
       style={{
@@ -428,7 +484,13 @@ function AgencyCard({ agency, onDelete, disabled }: { agency: Agency; onDelete: 
             {agency.timezone ?? '—'} · {agency.language ?? '—'} · {agency.phone ?? '—'}
           </div>
         </div>
-        <Tag tone="live">Live</Tag>
+        {stats == null ? (
+          <Tag tone="neutral">—</Tag>
+        ) : isStale ? (
+          <Tag tone="hot">Stale</Tag>
+        ) : (
+          <Tag tone="live">Live</Tag>
+        )}
       </div>
 
       <div
@@ -440,9 +502,16 @@ function AgencyCard({ agency, onDelete, disabled }: { agency: Agency; onDelete: 
           borderTop: '1px solid var(--border)',
         }}
       >
-        <InlineStat value="—" label="Routes" />
-        <InlineStat value="15s" label="Polling" />
-        <InlineStat value="0%" label="Errors" />
+        <InlineStat value={stats ? String(stats.routes) : '—'} label="Routes" />
+        <InlineStat
+          value={stats?.avgLatencyMs != null ? `${stats.avgLatencyMs}ms` : '—'}
+          label="Avg latency"
+        />
+        <InlineStat
+          value={errorRate != null ? `${errorRate.toFixed(1)}%` : '—'}
+          label="Errors / 24h"
+          tone={errorTone}
+        />
       </div>
 
       <div style={{ display: 'flex', gap: 8 }}>
@@ -475,6 +544,51 @@ function AgencyCard({ agency, onDelete, disabled }: { agency: Agency; onDelete: 
   );
 }
 
+function AgencyCardSkeleton() {
+  const bar = (w: number, h = 10) => (
+    <div
+      style={{
+        height: h,
+        width: w,
+        borderRadius: 4,
+        background: 'color-mix(in oklab, var(--text-muted) 14%, transparent)',
+      }}
+    />
+  );
+  return (
+    <div
+      style={{
+        padding: '12px 14px',
+        borderRadius: 14,
+        border: '1px solid var(--border)',
+        background: 'var(--surface)',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 10,
+        opacity: 0.7,
+      }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        {bar(140, 14)}
+        {bar(40, 14)}
+      </div>
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: '1fr 1fr 1fr',
+          gap: 8,
+          paddingTop: 8,
+          borderTop: '1px solid var(--border)',
+        }}
+      >
+        {bar(40)}
+        {bar(50)}
+        {bar(35)}
+      </div>
+    </div>
+  );
+}
+
 function InlineStat({ value, label, tone = 'neutral' }: { value: string; label: string; tone?: 'neutral' | 'hot' | 'live' }) {
   const color = tone === 'hot' ? 'var(--hot)' : tone === 'live' ? 'var(--live)' : 'var(--text)';
   return (
@@ -499,7 +613,7 @@ function InlineStat({ value, label, tone = 'neutral' }: { value: string; label: 
   );
 }
 
-function AddAgencyForm({ onSubmit, busy }: { onSubmit: (f: { rt: string; stat: string; key: string }) => void; busy: boolean }) {
+function AddAgencyForm({ onSubmit, busy }: { onSubmit: (f: { rt: string; stat: string; key: string }) => Promise<boolean>; busy: boolean }) {
   const [rt, setRt] = useState('');
   const [stat, setStat] = useState('');
   const [key, setKey] = useState('');
@@ -517,9 +631,14 @@ function AddAgencyForm({ onSubmit, busy }: { onSubmit: (f: { rt: string; stat: s
       <FormField label="API key" placeholder="Optional" mono value={key} onChange={setKey} />
 
       <button
-        onClick={() => {
+        onClick={async () => {
           if (!rt || !stat) return;
-          onSubmit({ rt, stat, key });
+          const ok = await onSubmit({ rt, stat, key });
+          if (ok) {
+            setRt('');
+            setStat('');
+            setKey('');
+          }
         }}
         disabled={busy || !rt || !stat}
         style={{

@@ -337,7 +337,24 @@ app.get('/api/landing', async (req, res) => {
                     a.id   AS agency_id,
                     a.name AS agency_name,
                     (SELECT COUNT(*) FROM public.route r WHERE r.agency_id = a.id)::int                  AS routes,
-                    (SELECT COUNT(*) FROM public.live_vehicle_position v WHERE v.agency_id = a.id)::int  AS buses_live
+                    (SELECT COUNT(*) FROM public.live_vehicle_position v WHERE v.agency_id = a.id)::int  AS buses_live,
+                    (
+                      SELECT ROUND(
+                        100.0 * SUM(CASE WHEN fe.status = 'error' THEN 1 ELSE 0 END)
+                              / NULLIF(COUNT(*), 0), 1
+                      )
+                      FROM public.feed_execution fe
+                      JOIN public.poll_iteration pi ON pi.id = fe.poll_iteration_id
+                      WHERE fe.agency_id = a.id
+                        AND pi.started_at >= NOW() - INTERVAL '24 hours'
+                    ) AS error_rate_pct,
+                    (
+                      SELECT ROUND(AVG(fe.execution_time_us) / 1000)::int
+                      FROM public.feed_execution fe
+                      JOIN public.poll_iteration pi ON pi.id = fe.poll_iteration_id
+                      WHERE fe.agency_id = a.id
+                        AND pi.started_at >= NOW() - INTERVAL '24 hours'
+                    ) AS avg_latency_ms
                 FROM public.agency a
                 ORDER BY a.name ASC
             `),
@@ -358,6 +375,8 @@ app.get('/api/landing', async (req, res) => {
                 routes: r.routes,
                 busesLive: r.buses_live,
                 stale: r.buses_live === 0,
+                errorRatePct: r.error_rate_pct == null ? null : Number(r.error_rate_pct),
+                avgLatencyMs: r.avg_latency_ms == null ? null : Number(r.avg_latency_ms),
             })),
         });
     } catch (err) {

@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useIsDesktop } from '../lib/useMediaQuery';
+import { useLandingData, type LandingData } from '../lib/useLandingData';
 import { BrandMark } from '../components/BrandMark';
 import { BusMark, BusIconG } from '../components/BusGlyph';
 import { LiveDot, Tag } from '../components/atoms';
@@ -8,36 +8,6 @@ import { IconArrowRight, IconPin, IconRoute } from '../components/Icons';
 import { MiniMap } from '../components/MiniMap';
 import { DesktopShell } from '../components/DesktopShell';
 import { MobileNavSheet } from '../components/MobileNavSheet';
-
-type LandingTotals = {
-  agencies: number;
-  routes: number;
-  busesLive: number;
-  polls24h: number;
-  errorRatePct: number | null;
-  avgLatencyMs: number | null;
-};
-type LandingAgency = {
-  id: string;
-  name: string;
-  routes: number;
-  busesLive: number;
-  stale: boolean;
-};
-type LandingData = { totals: LandingTotals; agencies: LandingAgency[] };
-
-function useLandingData(): LandingData | null {
-  const [data, setData] = useState<LandingData | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    fetch('/api/landing')
-      .then((r) => r.json())
-      .then((d: LandingData) => { if (!cancelled) setData(d); })
-      .catch((e) => console.error('landing data load failed', e));
-    return () => { cancelled = true; };
-  }, []);
-  return data;
-}
 
 function fmtInt(n: number): string {
   return n.toLocaleString('en-US');
