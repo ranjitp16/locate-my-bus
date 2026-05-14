@@ -3,6 +3,10 @@
         "dockerComposeFile": ["dockerCompose.yml"],
         "service": "locate-my-bus",
         "workspaceFolder": "/workspace",
+        "forwardPorts": [3000],
+        "portsAttributes": {
+                "3000": { "label": "Express (API + SPA)", "onAutoForward": "openBrowser" }
+        },
         "mounts": [
                 "source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind"
         ],

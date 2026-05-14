@@ -19,12 +19,17 @@ make build
 make run
 ```
 
-### Web server (Node.js)
+### Web (Node.js Express + React SPA)
+
+Single dev server. `npm run dev` (or `make run-dev`) builds the SPA into `web/public/dist/`, then starts Express via nodemon on port 3000. Express serves the API and the built SPA from the same origin — no Vite dev server, no second port.
 
 ```sh
-npm install
-npm run dev        # nodemon web/index.js, port 3000
+npm install                            # server deps (one-time)
+npm --prefix web/client install        # client deps (one-time)
+npm run dev                            # build SPA + run Express on :3000
 ```
+
+The React app lives in `web/client/` (Vite + React 18 + TypeScript). Vite is used in build mode only. To iterate on UI without restarting Express, run `npm --prefix web/client run build -- --watch` in another terminal — Express picks up the updated `dist/` automatically.
 
 ### Database
 
@@ -54,7 +59,7 @@ AZURE_MAPS_KEY      # Azure Maps subscription key — proxied via /api/azure-map
 
 ### Devcontainer
 
-A VS Code devcontainer is defined in `.devcontainer/`. It spins up a C++ Ubuntu container (port 8080→3000) and a Postgres 17 container (port 5434→5432). On `postCreate`, it installs system deps (`protobuf-compiler`, `libprotobuf-dev`, `libcurl4-openssl-dev`, `libpqxx-dev`), installs Node 22 via nvm, and runs `make get-protobuf-headers`. Environment variables come from `.development.env` (loaded into shell on container start).
+A VS Code devcontainer is defined in `.devcontainer/`. It spins up a C++ Ubuntu container (ports 3000 for Express and 5173 for Vite forwarded to host) and a Postgres 17 container (port 5434→5432). On `postCreate`, it installs system deps (`protobuf-compiler`, `libprotobuf-dev`, `libcurl4-openssl-dev`, `libpqxx-dev`), installs Node 22 via nvm, and runs `make get-protobuf-headers`. Environment variables come from `.development.env` (loaded into shell on container start).
 
 The devcontainer Docker network is `locate-my-bus_devcontainer_default` — used by `make run-docker` to attach the daemon container to the same network as Postgres.
 
@@ -109,20 +114,25 @@ Express 5, single file. Uses a `pg.Pool` for all queries. No ORM.
 
 **Daemon control**: `POST /api/daemon/kill` restarts the daemon container via the Docker socket (`/var/run/docker.sock`) — finds containers by image name `ranjitnovascotia/locate-my-bus:latest`, kills and restarts them.
 
-### Frontend (`web/public/`)
+### Frontend (`web/client/` → `web/public/dist/`)
 
-The map uses **Azure Maps SDK v3** via a thin adapter pattern:
+Single-page React 18 + TypeScript app built with Vite. Source lives in `web/client/src/`; the production build emits to `web/public/dist/` which Express serves as static + SPA catch-all.
 
-- `map.html` — main map page; all map calls go through `window.mapAdapter`; polls `/live/:agency_id/:route_id` every 15 s; marker click pins the map to that bus; zoom/center persisted in `localStorage`; light/dark theme via `data-theme` on `<html>` stored in `localStorage`. Shows route shape polyline via `/api/shape/:agency_id/:trip_id` when a bus is pinned. Auto-pins nearest bus when user location is active. Trip planning mode with geocoding, destination pin, trip results in resizable bottom sheet.
-- `assets/map-adapter-azure.js` — IIFE that exposes `window.mapAdapter` with methods for map lifecycle, bus markers, route shapes, user location, destination pins, trip plan rendering, and trip bus display. Handles all Azure Maps SDK calls internally — `map.html` never calls Atlas APIs directly. Exposes `mapAdapter.TRIP_COLORS` palette shared with trip result badges.
-  - Bus markers are `atlas.HtmlMarker` instances reused across polls (keyed by `vehicle_id`) so the pinned bus can animate along the route shape via `requestAnimationFrame`.
-  - Route shape is rendered as an SVG overlay (not a WebGL layer) to allow CSS `stroke-dasharray` animation; reprojected on each map `move` event via `map.positionsToPixels()`.
-  - At most one popup is open at a time (`_openPopup` state); popup content is preserved (not replaced) across polls for the pinned bus so the live age counter DOM reference stays valid.
-- `addAgency.html` — agency management UI; access key stored in `sessionStorage` as `dash-access-key`.
-- `dashboard.html` — ops dashboard; served at `/dash/monitor`.
-- Bootstrap 5.3.3 + Font Awesome 6.5.1 loaded from CDN with SRI hashes.
-- Never use `innerHTML` with user-supplied data — always use DOM APIs or `textContent`.
-- CSP (in `helmet` config) allows `atlas.microsoft.com` for Azure Maps scripts, styles, fonts, images, and connections; `workerSrc` includes `blob:` for MapLibre GL workers.
+**Design system** (`src/assets/tokens.css`): CSS custom properties for color/spacing/type. Type stack is Bricolage Grotesque (display) + Manrope (UI) + JetBrains Mono (data, labels, numbers). Default accent is electric blue (`--signal: #3B82F6`). Theme toggle persists in `localStorage` under `lmb-theme` and is applied as `data-theme="dark|light"` on `<html>` via `ThemeProvider`.
+
+**Routing**: React Router. Routes match the existing URL paths:
+- `/` → `pages/Landing.tsx` — editorial landing, hero live tracker, route tape (mostly hardcoded for now)
+- `/view-map` → `pages/MapPage.tsx` — Azure Maps SDK v3 loaded lazily; 15s polling of `/live/:agency_id/:route_id`; bus markers are `atlas.HtmlMarker` with SVG content from `components/busMarkSvgString.ts`; design chrome (top bar, FAB cluster, bottom sheet) wrapped around the live map
+- `/dash/agencies` → `pages/AgenciesPage.tsx` — wired to `/api/agencies*` with `x-access-key` from `sessionStorage['dash-access-key']`; daemon restart via `/api/daemon/kill`
+- `/dash/monitor` → `pages/MonitorPage.tsx` — Raw + Analytics tabs; currently rendered with placeholder data (live wiring to `/api/dashboard/*` is a follow-up)
+
+**Code-split**: each page is `React.lazy()`-loaded; Azure Maps SDK is `import()`-ed only inside `MapPage`. Landing's payload stays small.
+
+**Shared components**: `components/BusGlyph.tsx` (the custom illustrated bus), `components/Icons.tsx`, `components/atoms.tsx` (FAB, LiveDot, Tag), `components/MiniMap.tsx` (decorative SVG map for Landing), `components/DesktopShell.tsx` (top nav used on all desktop layouts). Responsive split is driven by `lib/useMediaQuery.ts` :: `useIsDesktop()` (`min-width: 900px`).
+
+**Conventions**: inline `style={{...}}` per the design's prototype style (no CSS modules / Tailwind). Never use `dangerouslyInnerHTML` with user input. The Azure Maps SDK is configured to proxy every `atlas.microsoft.com` request through `/api/azure-maps/*` (transformRequest in `lib/azureMaps.ts`), so the subscription key never reaches the browser.
+
+**CSP** (in `helmet` config): same-origin scripts and styles, `'unsafe-inline'` for inline React styles, Google Fonts whitelisted, Azure Maps requests are same-origin (proxied), `workerSrc` includes `blob:` for the SDK's MapLibre workers.
 
 ### Database (`db/schema/init.sql`)
 

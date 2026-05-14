@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+
+    <title>Locate My Bus — Live Bus Tracker for Halifax & GTFS Transit Agencies</title>
+    <meta name="description" content="Track buses in real time on a live map. Locate My Bus shows GTFS-RT vehicle positions for Halifax Transit and other agencies, refreshed every 15 seconds." />
+    <link rel="canonical" href="https://bus.ranjitpandey.dev/" />
+    <meta name="theme-color" content="#0A0E14" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Locate My Bus" />
+    <meta property="og:title" content="Locate My Bus — Live Bus Tracker" />
+    <meta property="og:description" content="See where your bus is, right now. Real-time bus locations on a map, updated every 15 seconds. Free, no signup." />
+    <meta property="og:url" content="https://bus.ranjitpandey.dev/" />
+    <meta property="og:image" content="https://bus.ranjitpandey.dev/assets/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Locate My Bus — live bus tracker showing real-time bus positions on a map of Halifax" />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Locate My Bus — Live Bus Tracker" />
+    <meta name="twitter:description" content="Real-time bus locations on a map, updated every 15 seconds." />
+    <meta name="twitter:image" content="https://bus.ranjitpandey.dev/assets/og-image.png" />
+
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebApplication",
+      "name": "Locate My Bus",
+      "url": "https://bus.ranjitpandey.dev/",
+      "description": "Live bus tracker for Halifax Transit and other GTFS-RT enabled agencies. Real-time vehicle positions on a map, refreshed every 15 seconds.",
+      "applicationCategory": "TravelApplication",
+      "operatingSystem": "Any",
+      "browserRequirements": "Requires JavaScript and a modern browser",
+      "isAccessibleForFree": true,
+      "author": { "@type": "Person", "name": "Ranjit Pandey", "url": "https://ranjitpandey.dev" }
+    }
+    </script>
+
+    <!-- Apply persisted theme before paint to avoid a flash. -->
+    <script>
+      (function () {
+        var saved = localStorage.getItem('lmb-theme');
+        var theme = saved === 'light' ? 'light' : 'dark';
+        document.documentElement.setAttribute('data-theme', theme);
+      })();
+    </script>
+
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-7KKXW54Z0W"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', 'G-7KKXW54Z0W');
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

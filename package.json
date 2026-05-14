@@ -4,7 +4,7 @@
   "description": "frontend-for-locate-my-bus",
   "main": "web/index.js",
   "scripts": {
-    "dev": "nodemon web/index.js",
+    "dev": "npm --prefix web/client run build && nodemon web/index.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {

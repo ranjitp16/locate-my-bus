@@ -39,45 +39,43 @@ app.use(helmet({
     contentSecurityPolicy: {
         directives: {
             defaultSrc: ["'self'"],
+            // All app JS is bundled and served same-origin from /dist/assets.
+            // 'unsafe-inline' stays so React's inline event handlers / future
+            // analytics snippets work; tighten with a nonce when adding any.
             scriptSrc: [
                 "'self'",
-                "https://cdn.jsdelivr.net",
                 "'unsafe-inline'",
                 "https://atlas.microsoft.com",
-                "https://www.googletagmanager.com",
-                "https://static.cloudflareinsights.com"
+                "https://www.googletagmanager.com"
             ],
+            // 'unsafe-inline' needed for React's heavy use of style={{...}}.
             styleSrc: [
                 "'self'",
-                "https://cdn.jsdelivr.net",
-                "https://cdnjs.cloudflare.com",
+                "'unsafe-inline'",
                 "https://atlas.microsoft.com",
-                "'unsafe-inline'"
+                "https://fonts.googleapis.com"
             ],
             fontSrc: [
                 "'self'",
-                "https://cdn.jsdelivr.net",
-                "https://cdnjs.cloudflare.com",
-                "https://atlas.microsoft.com"
+                "https://atlas.microsoft.com",
+                "https://fonts.gstatic.com"
             ],
             imgSrc: [
                 "'self'",
                 "data:",
-                "https://*.tile.openstreetmap.org",
-                "https://*.basemaps.cartocdn.com",
-                "https://tiles.stadiamaps.com",
+                "https://atlas.microsoft.com",
                 "https://www.google-analytics.com",
                 "https://*.google-analytics.com",
             ],
+            // Azure Maps tiles/styles normally go through /api/azure-maps,
+            // but atlas.microsoft.com stays whitelisted as a safety net for
+            // any SDK request that bypasses transformRequest.
             connectSrc: [
                 "'self'",
                 "https://atlas.microsoft.com",
-                "https://cdn.jsdelivr.net",
                 "https://www.googletagmanager.com",
                 "https://www.google-analytics.com",
-                "https://*.google-analytics.com",
-                "https://cloudflareinsights.com",
-                "https://*.cloudflareinsights.com",
+                "https://*.google-analytics.com"
             ],
             workerSrc: [
                 "'self'",
@@ -96,7 +94,10 @@ const authMiddleware = (req, res, next) => {
     next();
 };
 
-app.use(express.static(path.join(__dirname, 'public')))
+// Serve the React SPA build first, then fall through to other static assets
+// (robots.txt, sitemap.xml, og-image, etc.) so they keep working.
+app.use(express.static(path.join(__dirname, 'public', 'dist')));
+app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -241,14 +242,6 @@ app
         res.send(rows)
     })
 
-app.get('/dash/agencies', async (req, res) => {
-    return res.sendFile(path.join(__dirname, 'public/addAgency.html'))
-});
-
-app.get('/dash/monitor', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public/dashboard.html'));
-});
-
 app.get('/api/dashboard/stats', authMiddleware, async (req, res) => {
     try {
         const { rows } = await pool.query(`
@@ -314,10 +307,6 @@ app.get('/api/dashboard/executions/:poll_iteration_id', authMiddleware, async (r
         console.error(err);
         res.status(500).json({ error: 'Failed to fetch executions.' });
     }
-});
-
-app.get('/view-map', async (req, res) => {
-    return res.sendFile(path.join(__dirname, 'public/map.html'))
 });
 
 app.get('/api/agencies', async (req, res) => {
@@ -547,6 +536,15 @@ app.get('/api/trip-plan/:agency_id', async (req, res) => {
         console.error('[trip-plan]', err);
         res.status(500).json({ error: 'Trip planning failed' });
     }
+});
+
+// SPA fallback: any unmatched GET that doesn't look like a file or API request
+// returns the React shell so client-side routing can take over.
+app.use((req, res, next) => {
+    if (req.method !== 'GET') return next();
+    if (req.path.startsWith('/api/') || req.path.startsWith('/routes/') || req.path.startsWith('/live/')) return next();
+    if (req.path.includes('.')) return next();
+    res.sendFile(path.join(__dirname, 'public', 'dist', 'index.html'));
 });
 
 app.listen(port, () => {

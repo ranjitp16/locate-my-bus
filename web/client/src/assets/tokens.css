@@ -1,0 +1,137 @@
+/* ─────────────────────────────────────────────────────────────
+   Locate My Bus — Design Tokens
+   Bricolage Grotesque (display) · Manrope (UI) · JetBrains Mono (data)
+   Electric-blue signal accent
+   ───────────────────────────────────────────────────────────── */
+
+@import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap');
+
+:root {
+  /* Type */
+  --font-display: 'Bricolage Grotesque', 'Manrope', system-ui, sans-serif;
+  --font-sans:    'Manrope', system-ui, sans-serif;
+  --font-mono:    'JetBrains Mono', 'SF Mono', Menlo, monospace;
+
+  /* Brand signal — electric blue by default */
+  --signal:        #3B82F6;
+  --signal-soft:   #60A5FA;
+  --signal-ink:    #FFFFFF;
+  --signal-tint:   color-mix(in oklab, var(--signal) 14%, transparent);
+
+  --live:          #22C55E;
+  --hot:           #FF453A;
+  --warn:          #F59E0B;
+
+  /* Geometry */
+  --r-xs: 4px;
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 20px;
+  --r-xl: 28px;
+}
+
+/* ── DARK ──────────────────────────────────────────────────── */
+[data-theme="dark"] {
+  --bg:           #0A0E14;
+  --bg-elevated:  #0F141C;
+  --surface:      #131A25;
+  --surface-alt:  #1A2230;
+  --surface-hi:   #232C3D;
+  --border:       #232C3D;
+  --border-hi:    #364158;
+  --text:         #ECEEF1;
+  --text-soft:    #BDC4D0;
+  --text-muted:   #6B7689;
+  --text-faint:   #3F4A5E;
+
+  --map-land:     #141B26;
+  --map-land-2:   #1B2330;
+  --map-road:     #2C3850;
+  --map-road-mj:  #3D4D6B;
+  --map-water:    #0B2034;
+  --map-park:     #15281D;
+  --map-label:    #6B7689;
+
+  /* Chart/data baseline — kept distinct from --signal so charts stay
+     legible regardless of which accent the user picks. */
+  --cool:         #5B6B7A;
+}
+
+/* ── LIGHT ─────────────────────────────────────────────────── */
+[data-theme="light"] {
+  --bg:           #F6F4EE;
+  --bg-elevated:  #FBF9F3;
+  --surface:      #FFFFFF;
+  --surface-alt:  #F1EEE3;
+  --surface-hi:   #E6E2D2;
+  --border:       #E0DBCA;
+  --border-hi:    #BCB6A1;
+  --text:         #0A0E14;
+  --text-soft:    #2A2F38;
+  --text-muted:   #6E6A5C;
+  --text-faint:   #B5B0A0;
+
+  --map-land:     #ECE7D6;
+  --map-land-2:   #E2DCC8;
+  --map-road:     #FFFFFF;
+  --map-road-mj:  #FFD27A;
+  --map-water:    #BCD4E8;
+  --map-park:     #CFE0C0;
+  --map-label:    #6E6A5C;
+
+  --cool:         #A0AABA;
+}
+
+/* ── Base ──────────────────────────────────────────────────── */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body, #root { height: 100%; }
+
+body {
+  background: var(--bg);
+  font-family: var(--font-sans);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+button { font-family: inherit; cursor: pointer; }
+
+.mono { font-family: var(--font-mono); font-feature-settings: "tnum" 1, "zero" 1; }
+.display { font-family: var(--font-display); font-feature-settings: "ss01" 1; }
+.tnum { font-variant-numeric: tabular-nums; }
+
+/* Pulse for live dots */
+@keyframes lmb-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.55; transform: scale(1.15); }
+}
+.lmb-pulse { animation: lmb-pulse 1.6s ease-in-out infinite; }
+
+/* Tape strip scroll */
+@keyframes lmb-tape {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+
+@keyframes lmb-tape-rev {
+  from { transform: translateX(-50%); }
+  to   { transform: translateX(0); }
+}
+
+/* Dash flow for route lines */
+@keyframes lmb-dash {
+  to { stroke-dashoffset: -40; }
+}
+
+/* Slow drift along a path (used for buses on landing) */
+@keyframes lmb-drift {
+  0%   { offset-distance: 0%; }
+  100% { offset-distance: 100%; }
+}
+
+/* Soft entry */
+@keyframes lmb-fade-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
