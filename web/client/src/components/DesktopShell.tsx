@@ -3,7 +3,7 @@ import { NavLink } from 'react-router-dom';
 import { useTheme } from '../theme/ThemeProvider';
 import { BrandMark } from './BrandMark';
 import { BusIconG } from './BusGlyph';
-import { IconHome } from './Icons';
+import { IconActivity, IconFlag, IconHome } from './Icons';
 import { Tag } from './atoms';
 
 type DesktopNavProps = {
@@ -75,8 +75,14 @@ export function DesktopNav({ rightSlot }: DesktopNavProps) {
             <BusIconG size={14} />
             Live map
           </NavTab>
-          <NavTab to="/dash/agencies">Agencies</NavTab>
-          <NavTab to="/dash/monitor">Monitor</NavTab>
+          <NavTab to="/dash/agencies">
+            <IconFlag size={14} />
+            Agencies
+          </NavTab>
+          <NavTab to="/dash/monitor">
+            <IconActivity size={14} />
+            Monitor
+          </NavTab>
         </div>
       </div>
 

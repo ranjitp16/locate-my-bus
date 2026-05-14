@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useIsDesktop } from '../lib/useMediaQuery';
-import { useTheme } from '../theme/ThemeProvider';
 import { BrandMark } from '../components/BrandMark';
 import { BusMark, BusIconG } from '../components/BusGlyph';
 import { LiveDot, Tag } from '../components/atoms';
 import { IconArrowRight, IconPin, IconRoute } from '../components/Icons';
 import { MiniMap } from '../components/MiniMap';
 import { DesktopShell } from '../components/DesktopShell';
+import { MobileNavSheet } from '../components/MobileNavSheet';
 
 type LandingTotals = {
   agencies: number;
@@ -54,31 +54,13 @@ export default function Landing() {
 
 // ── Mobile ───────────────────────────────────────────────────
 function MobileLanding({ data }: { data: LandingData | null }) {
-  const { theme, toggle } = useTheme();
   return (
     <div style={{ minHeight: '100%', background: 'var(--bg)' }}>
       <div style={{ maxWidth: 480, margin: '0 auto', paddingBottom: 60 }}>
         {/* Brand row */}
         <div style={{ padding: '24px 20px 0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <BrandMark />
-          <button
-            onClick={toggle}
-            aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}
-            style={{
-              padding: '7px 12px',
-              borderRadius: 999,
-              background: 'var(--surface)',
-              border: '1px solid var(--border)',
-              color: 'var(--text)',
-              fontSize: 12,
-              fontWeight: 600,
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 6,
-            }}
-          >
-            {theme === 'dark' ? '☾' : '☀'} {theme === 'dark' ? 'Dark' : 'Light'}
-          </button>
+          <MobileNavSheet />
         </div>
 
         {/* Editorial headline */}
