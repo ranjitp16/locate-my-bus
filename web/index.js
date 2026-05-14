@@ -250,11 +250,20 @@ app.get('/api/dashboard/stats', authMiddleware, async (req, res) => {
                 COUNT(fe.id)::int                                                                               AS total_executions,
                 ROUND(AVG(fe.execution_time_us) / 1000)::int                                                   AS avg_execution_ms,
                 ROUND(100.0 * SUM(CASE WHEN fe.is_cache_hit  THEN 1 ELSE 0 END) / NULLIF(COUNT(*), 0), 1)     AS cache_hit_pct,
-                ROUND(100.0 * SUM(CASE WHEN fe.status = 'error' THEN 1 ELSE 0 END) / NULLIF(COUNT(*), 0), 1)  AS error_pct
+                ROUND(100.0 * SUM(CASE WHEN fe.status = 'error' THEN 1 ELSE 0 END) / NULLIF(COUNT(*), 0), 1)  AS error_pct,
+                MIN(pi.started_at)                                                                              AS oldest_iteration_at
             FROM public.poll_iteration pi
             LEFT JOIN public.feed_execution fe ON fe.poll_iteration_id = pi.id
         `);
-        res.json(rows[0]);
+        const r = rows[0] ?? {};
+        res.json({
+            total_iterations: r.total_iterations ?? 0,
+            total_executions: r.total_executions ?? 0,
+            avg_execution_ms: r.avg_execution_ms == null ? null : Number(r.avg_execution_ms),
+            cache_hit_pct: r.cache_hit_pct == null ? null : Number(r.cache_hit_pct),
+            error_pct: r.error_pct == null ? null : Number(r.error_pct),
+            oldest_iteration_at: r.oldest_iteration_at,
+        });
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: 'Failed to fetch stats.' });
@@ -507,10 +516,15 @@ app.get('/api/dashboard/analytics', authMiddleware, async (req, res) => {
                 WHERE NOT fe.is_cache_hit AND aa.avg_dl > 0 AND fe.download_time_us > 3 * aa.avg_dl
             `)
         ]);
+        const s = summaryRes.rows[0] ?? {};
         res.json({
             feedStats: feedRes.rows,
             summary: {
-                ...summaryRes.rows[0],
+                total_iterations: s.total_iterations ?? 0,
+                min_iteration_id: s.min_iteration_id ?? 0,
+                max_iteration_id: s.max_iteration_id ?? 0,
+                unique_feeds: s.unique_feeds ?? 0,
+                cache_hit_pct: s.cache_hit_pct == null ? null : Number(s.cache_hit_pct),
                 avg_cycle_seconds: cycleRes.rows[0]?.avg_cycle_seconds ?? null,
                 slow_incidents: slowRes.rows[0]?.slow_incidents ?? 0,
             }

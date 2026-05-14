@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useIsDesktop } from '../lib/useMediaQuery';
 import { useLandingData, type LandingAgency } from '../lib/useLandingData';
+import { useAccessKey } from '../lib/useAccessKey';
+import { AccessKeyRow } from '../components/AccessKeyRow';
 import { DesktopShell } from '../components/DesktopShell';
 import { MobileNavSheet } from '../components/MobileNavSheet';
 import { Tag } from '../components/atoms';
@@ -10,16 +12,12 @@ import {
 } from '../components/Icons';
 import type { Agency } from '../lib/azureMaps';
 
-const ACCESS_KEY_STORAGE = 'dash-access-key';
-
 export default function AgenciesPage() {
   const isDesktop = useIsDesktop();
 
   // `null` = still loading; `[]` = loaded but empty.
   const [agencies, setAgencies] = useState<Agency[] | null>(null);
-  const [accessKey, setAccessKey] = useState<string>(() =>
-    typeof window === 'undefined' ? '' : window.sessionStorage.getItem(ACCESS_KEY_STORAGE) ?? ''
-  );
+  const [accessKey, setAccessKey] = useAccessKey();
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -47,11 +45,6 @@ export default function AgenciesPage() {
   useEffect(() => {
     reload();
   }, [reload]);
-
-  useEffect(() => {
-    if (accessKey) window.sessionStorage.setItem(ACCESS_KEY_STORAGE, accessKey);
-    else window.sessionStorage.removeItem(ACCESS_KEY_STORAGE);
-  }, [accessKey]);
 
   // Auto-dismiss success messages — error stays until user acts.
   useEffect(() => {
@@ -389,43 +382,6 @@ function StatMini({ value, label, tone = 'neutral' }: { value: string; label: st
       >
         {label}
       </div>
-    </div>
-  );
-}
-
-function AccessKeyRow({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  return (
-    <div style={{ marginTop: 14 }}>
-      <div
-        className="mono"
-        style={{
-          fontSize: 10,
-          fontWeight: 700,
-          color: 'var(--text-muted)',
-          letterSpacing: 0.8,
-          textTransform: 'uppercase',
-          marginBottom: 6,
-        }}
-      >
-        Access key
-      </div>
-      <input
-        type="password"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder="Required for changes"
-        style={{
-          width: '100%',
-          padding: '11px 12px',
-          background: 'var(--bg)',
-          color: 'var(--text)',
-          border: '1px solid var(--border)',
-          borderRadius: 10,
-          fontFamily: 'var(--font-mono)',
-          fontSize: 13,
-          outline: 'none',
-        }}
-      />
     </div>
   );
 }

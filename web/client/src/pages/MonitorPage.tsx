@@ -1,22 +1,150 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useIsDesktop } from '../lib/useMediaQuery';
+import { useAccessKey } from '../lib/useAccessKey';
+import { AccessKeyRow } from '../components/AccessKeyRow';
 import { DesktopShell } from '../components/DesktopShell';
+import { MobileNavSheet } from '../components/MobileNavSheet';
 import { LiveDot, Tag } from '../components/atoms';
 import { IconArrowLeft, IconBolt, IconChevron, IconRefresh } from '../components/Icons';
 
 type Tab = 'raw' | 'analytics';
 
+type Stats = {
+  total_iterations: number;
+  total_executions: number;
+  avg_execution_ms: number | null;
+  cache_hit_pct: number | null;
+  error_pct: number | null;
+  oldest_iteration_at: string | null;
+};
+
+type Iteration = {
+  id: number;
+  started_at: string;
+  agency_count: number;
+  actual_executions: number;
+  avg_execution_ms: number | null;
+  error_count: number;
+  cache_hits: number;
+};
+
+type FeedStat = {
+  agency_id: string;
+  agency_name: string;
+  rt_feed_url: string;
+  total_executions: number;
+  cache_hits: number;
+  avg_download_ms: number | null;
+  max_download_ms: number | null;
+  avg_exec_ms: number | null;
+  max_exec_ms: number | null;
+  error_count: number;
+  slow_incidents: number;
+};
+
+type AnalyticsResponse = {
+  feedStats: FeedStat[];
+  summary: {
+    total_iterations: number;
+    min_iteration_id: number;
+    max_iteration_id: number;
+    unique_feeds: number;
+    cache_hit_pct: number | null;
+    avg_cycle_seconds: number | null;
+    slow_incidents: number;
+  };
+};
+
+type LatencyPoint = {
+  iteration_id: number;
+  agency_id: string;
+  agency_name: string;
+  download_ms: number;
+};
+
 export default function MonitorPage() {
   const isDesktop = useIsDesktop();
   const [tab, setTab] = useState<Tab>('raw');
+  const [accessKey, setAccessKey] = useAccessKey();
+  const [stats, setStats] = useState<Stats | null>(null);
+  const [iterations, setIterations] = useState<Iteration[] | null>(null);
+  const [analytics, setAnalytics] = useState<AnalyticsResponse | null>(null);
+  const [latency, setLatency] = useState<LatencyPoint[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [refreshTick, setRefreshTick] = useState(0);
+
+  const refresh = useCallback(async () => {
+    if (!accessKey) {
+      setStats(null);
+      setIterations(null);
+      setAnalytics(null);
+      setLatency(null);
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const headers = { 'x-access-key': accessKey };
+      const [s, i, a, l] = await Promise.all([
+        fetch('/api/dashboard/stats', { headers }),
+        fetch('/api/dashboard/iterations', { headers }),
+        fetch('/api/dashboard/analytics', { headers }),
+        fetch('/api/dashboard/latency', { headers }),
+      ]);
+      if ([s, i, a, l].some((r) => r.status === 401)) {
+        setAccessKey('');
+        throw new Error('Access key rejected — re-enter it.');
+      }
+      if (![s, i, a, l].every((r) => r.ok)) {
+        throw new Error('Failed to fetch dashboard data.');
+      }
+      setStats(await s.json());
+      setIterations(await i.json());
+      setAnalytics(await a.json());
+      setLatency(await l.json());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to fetch dashboard data.');
+      setStats(null);
+      setIterations(null);
+      setAnalytics(null);
+      setLatency(null);
+    } finally {
+      setBusy(false);
+    }
+  }, [accessKey, setAccessKey]);
+
+  useEffect(() => {
+    refresh();
+  }, [refresh, refreshTick]);
+
+  const onRefresh = () => setRefreshTick((n) => n + 1);
 
   const tabs = <TabSwitch tab={tab} onChange={setTab} />;
-  const body = tab === 'raw' ? <RawBody /> : <AnalyticsBody />;
+  const body = (
+    <>
+      {!accessKey && (
+        <AccessKeyPrompt value={accessKey} onChange={setAccessKey} />
+      )}
+      {accessKey && error && <Banner tone="hot">{error}</Banner>}
+      {accessKey && !error && (
+        tab === 'raw' ? (
+          <RawBody stats={stats} iterations={iterations} />
+        ) : (
+          <AnalyticsBody analytics={analytics} latency={latency} />
+        )
+      )}
+    </>
+  );
 
   if (isDesktop) {
     return (
-      <DesktopShell>
+      <DesktopShell
+        rightSlot={
+          accessKey ? <RefreshButton onClick={onRefresh} busy={busy} /> : null
+        }
+      >
         <div style={{ maxWidth: 1100, margin: '0 auto', padding: '32px 64px 80px' }}>
           {tabs}
           <div style={{ marginTop: 22 }}>{body}</div>
@@ -24,11 +152,10 @@ export default function MonitorPage() {
       </DesktopShell>
     );
   }
-
   return (
     <div style={{ minHeight: '100%', background: 'var(--bg)' }}>
       <div style={{ maxWidth: 480, margin: '0 auto', padding: '0 0 80px' }}>
-        <MobileHeader />
+        <MobileHeader onRefresh={onRefresh} busy={busy} hasKey={!!accessKey} />
         <div style={{ padding: '14px 18px 0' }}>{tabs}</div>
         <div style={{ padding: '0 18px' }}>{body}</div>
       </div>
@@ -36,7 +163,8 @@ export default function MonitorPage() {
   );
 }
 
-function MobileHeader() {
+// ── Headers / chrome ──────────────────────────────────────
+function MobileHeader({ onRefresh, busy, hasKey }: { onRefresh: () => void; busy: boolean; hasKey: boolean }) {
   return (
     <div
       style={{
@@ -83,25 +211,90 @@ function MobileHeader() {
       >
         POLL<span style={{ color: 'var(--text-muted)' }}>.</span>MONITOR
       </span>
-      <button
+      {hasKey && <RefreshButton onClick={onRefresh} busy={busy} compact />}
+      <MobileNavSheet />
+    </div>
+  );
+}
+
+function RefreshButton({ onClick, busy, compact }: { onClick: () => void; busy: boolean; compact?: boolean }) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={busy}
+      style={{
+        padding: compact ? '6px 10px' : '7px 12px',
+        borderRadius: compact ? 8 : 999,
+        background: compact ? 'var(--surface)' : 'transparent',
+        border: '1px solid var(--border)',
+        color: 'var(--text)',
+        fontFamily: 'var(--font-mono)',
+        fontSize: compact ? 10 : 12,
+        fontWeight: 700,
+        letterSpacing: compact ? 0.4 : undefined,
+        textTransform: compact ? 'uppercase' : undefined,
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 6,
+        opacity: busy ? 0.5 : 1,
+      }}
+    >
+      <IconRefresh size={compact ? 11 : 12} />
+      {!compact && (busy ? 'Refreshing…' : 'Refresh')}
+    </button>
+  );
+}
+
+function AccessKeyPrompt({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <div
+      style={{
+        marginTop: 20,
+        padding: '20px 18px',
+        borderRadius: 14,
+        border: '1px solid var(--border)',
+        background: 'var(--surface)',
+        maxWidth: 480,
+      }}
+    >
+      <div
+        className="mono"
         style={{
-          padding: '6px 10px',
-          borderRadius: 8,
-          background: 'var(--surface)',
-          border: '1px solid var(--border)',
-          color: 'var(--text)',
-          fontFamily: 'var(--font-mono)',
           fontSize: 10,
           fontWeight: 700,
-          letterSpacing: 0.4,
+          color: 'var(--text-muted)',
+          letterSpacing: 1.2,
           textTransform: 'uppercase',
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: 4,
+          marginBottom: 6,
         }}
       >
-        <IconRefresh size={11} />
-      </button>
+        Authentication required
+      </div>
+      <div style={{ fontSize: 14, color: 'var(--text)', fontWeight: 500, marginBottom: 4 }}>
+        Enter the dashboard access key to view daemon health and feed analytics.
+      </div>
+      <AccessKeyRow value={value} onChange={onChange} />
+    </div>
+  );
+}
+
+function Banner({ tone, children }: { tone: 'hot' | 'live'; children: React.ReactNode }) {
+  const color = tone === 'hot' ? 'var(--hot)' : 'var(--live)';
+  return (
+    <div
+      style={{
+        marginTop: 14,
+        padding: '10px 12px',
+        borderRadius: 10,
+        border: `1px solid ${color}`,
+        background: `color-mix(in oklab, ${color} 8%, var(--surface))`,
+        color,
+        fontFamily: 'var(--font-mono)',
+        fontSize: 11,
+        fontWeight: 700,
+      }}
+    >
+      {children}
     </div>
   );
 }
@@ -118,12 +311,8 @@ function TabSwitch({ tab, onChange }: { tab: Tab; onChange: (t: Tab) => void }) 
         maxWidth: 360,
       }}
     >
-      <TabButton active={tab === 'raw'} onClick={() => onChange('raw')}>
-        Raw data
-      </TabButton>
-      <TabButton active={tab === 'analytics'} onClick={() => onChange('analytics')}>
-        Analytics
-      </TabButton>
+      <TabButton active={tab === 'raw'} onClick={() => onChange('raw')}>Raw data</TabButton>
+      <TabButton active={tab === 'analytics'} onClick={() => onChange('analytics')}>Analytics</TabButton>
     </div>
   );
 }
@@ -168,28 +357,52 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
-// ── Raw tab ────────────────────────────────────────────────
-type Iter = { id: number; time: string; ago: string; agencies: number; exec: number; errors: number; cache: number };
-const ITERATIONS: Iter[] = [
-  { id: 156420, time: '21:25:04', ago: '2s', agencies: 5, exec: 387, errors: 0, cache: 0 },
-  { id: 156419, time: '21:24:46', ago: '20s', agencies: 5, exec: 377, errors: 0, cache: 0 },
-  { id: 156418, time: '21:24:28', ago: '38s', agencies: 5, exec: 354, errors: 0, cache: 0 },
-  { id: 156417, time: '21:24:11', ago: '55s', agencies: 5, exec: 338, errors: 0, cache: 0 },
-  { id: 156416, time: '21:23:54', ago: '1m12s', agencies: 5, exec: 337, errors: 0, cache: 12 },
-  { id: 156415, time: '21:23:36', ago: '1m30s', agencies: 5, exec: 341, errors: 0, cache: 0 },
-  { id: 156414, time: '21:23:19', ago: '1m47s', agencies: 5, exec: 343, errors: 0, cache: 0 },
-  { id: 156413, time: '21:23:02', ago: '2m04s', agencies: 5, exec: 1247, errors: 1, cache: 0 },
-  { id: 156412, time: '21:22:45', ago: '2m21s', agencies: 5, exec: 358, errors: 0, cache: 0 },
-  { id: 156411, time: '21:22:27', ago: '2m39s', agencies: 5, exec: 347, errors: 0, cache: 0 },
-];
+// ── Formatters ────────────────────────────────────────────
+function fmtInt(n: number | null | undefined): string {
+  return n == null ? '—' : n.toLocaleString('en-US');
+}
 
-const SPARK_DATA = [
-  34, 35, 33, 35, 36, 34, 35, 33, 34, 35, 36, 38, 34, 33, 35, 36, 33, 34, 35, 34,
-  36, 35, 33, 34, 96, 35, 33, 34, 35, 33, 35, 34, 33, 35, 36, 35, 34, 33, 35, 34,
-  33, 35, 34, 36, 35, 33, 35, 34, 38, 34, 35, 34, 33, 35, 36, 33, 34, 36, 35,
-];
+function fmtUptime(iso: string | null): string {
+  if (!iso) return '—';
+  const ms = Date.now() - new Date(iso).getTime();
+  if (!Number.isFinite(ms) || ms < 0) return '—';
+  const days = Math.floor(ms / 86_400_000);
+  const hours = Math.floor((ms % 86_400_000) / 3_600_000);
+  return `${days}d ${hours}h`;
+}
 
-function RawBody() {
+function fmtAgo(iso: string): string {
+  const ms = Date.now() - new Date(iso).getTime();
+  if (!Number.isFinite(ms) || ms < 0) return '—';
+  if (ms < 1000) return 'just now';
+  if (ms < 60_000) return `${Math.floor(ms / 1000)}s`;
+  if (ms < 3_600_000) {
+    const m = Math.floor(ms / 60_000);
+    const s = Math.floor((ms % 60_000) / 1000);
+    return `${m}m${s.toString().padStart(2, '0')}s`;
+  }
+  const h = Math.floor(ms / 3_600_000);
+  const m = Math.floor((ms % 3_600_000) / 60_000);
+  return `${h}h${m.toString().padStart(2, '0')}m`;
+}
+
+function fmtTime(iso: string): string {
+  const d = new Date(iso);
+  return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}:${d.getSeconds().toString().padStart(2, '0')}`;
+}
+
+// ── Raw tab ───────────────────────────────────────────────
+function RawBody({ stats, iterations }: { stats: Stats | null; iterations: Iteration[] | null }) {
+  const sparkData = useMemo(() => {
+    if (!iterations) return [];
+    const arr = iterations
+      .slice()
+      .reverse()
+      .map((it) => it.avg_execution_ms ?? 0);
+    return arr;
+  }, [iterations]);
+  const errorPct = stats?.error_pct;
+  const errorTone: 'live' | 'hot' = (errorPct ?? 0) > 1 ? 'hot' : 'live';
   return (
     <>
       <div style={{ padding: '18px 0 0' }}>
@@ -204,7 +417,7 @@ function RawBody() {
           }}
         >
           <div style={{ position: 'absolute', top: 0, right: 0, padding: '8px 12px' }}>
-            <LiveDot label="Healthy" />
+            <LiveDot label={errorTone === 'hot' ? 'Degraded' : 'Healthy'} />
           </div>
           <div
             className="mono"
@@ -216,14 +429,14 @@ function RawBody() {
               textTransform: 'uppercase',
             }}
           >
-            Daemon uptime · 28d 14h
+            Daemon uptime · {fmtUptime(stats?.oldest_iteration_at ?? null)}
           </div>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginTop: 8 }}>
             <span
               className="mono"
               style={{ fontSize: 42, fontWeight: 800, color: 'var(--text)', lineHeight: 0.95, letterSpacing: -1.5 }}
             >
-              71,376
+              {stats ? fmtInt(stats.total_iterations) : '—'}
             </span>
             <span className="mono" style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 600 }}>
               iterations
@@ -238,9 +451,13 @@ function RawBody() {
               borderTop: '1px solid var(--border)',
             }}
           >
-            <MiniMetric value="356,385" label="Executions" />
-            <MiniMetric value="331" unit="ms" label="Avg exec" />
-            <MiniMetric value="0.0%" label="Error rate" tone="live" />
+            <MiniMetric value={stats ? fmtInt(stats.total_executions) : '—'} label="Executions" />
+            <MiniMetric value={stats?.avg_execution_ms != null ? String(stats.avg_execution_ms) : '—'} unit="ms" label="Avg exec" />
+            <MiniMetric
+              value={stats?.error_pct != null ? `${stats.error_pct.toFixed(1)}%` : '—'}
+              label="Error rate"
+              tone={errorTone}
+            />
           </div>
         </div>
       </div>
@@ -255,12 +472,16 @@ function RawBody() {
           }}
         >
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10, alignItems: 'center' }}>
-            <SectionLabel>Exec time · last hour</SectionLabel>
+            <SectionLabel>Exec time · last {sparkData.length} iterations</SectionLabel>
             <span className="mono" style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-muted)' }}>
-              240 polls
+              {sparkData.length} polls
             </span>
           </div>
-          <Sparkline data={SPARK_DATA} />
+          {sparkData.length > 0 ? (
+            <Sparkline data={sparkData} />
+          ) : (
+            <SkeletonBlock height={56} />
+          )}
         </div>
       </div>
 
@@ -268,23 +489,30 @@ function RawBody() {
         <SectionLabel>Recent iterations</SectionLabel>
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-        {ITERATIONS.map((it) => (
-          <IterationRow key={it.id} {...it} />
+        {iterations == null && (
+          <>
+            <SkeletonBlock height={52} />
+            <SkeletonBlock height={52} />
+            <SkeletonBlock height={52} />
+          </>
+        )}
+        {iterations?.slice(0, 12).map((it) => (
+          <IterationRow key={it.id} iter={it} />
         ))}
       </div>
     </>
   );
 }
 
-function MiniMetric({ value, unit, label, tone = 'neutral' }: { value: string; unit?: string; label: string; tone?: 'neutral' | 'live' }) {
-  const color = tone === 'live' ? 'var(--live)' : 'var(--text)';
+function MiniMetric({
+  value, unit, label, tone = 'neutral',
+}: { value: string; unit?: string; label: string; tone?: 'neutral' | 'live' | 'hot' }) {
+  const color = tone === 'live' ? 'var(--live)' : tone === 'hot' ? 'var(--hot)' : 'var(--text)';
   return (
     <div style={{ flex: 1 }}>
       <div className="mono" style={{ fontSize: 14, fontWeight: 800, color, lineHeight: 1, letterSpacing: -0.3 }}>
         {value}
-        {unit && (
-          <span style={{ fontSize: 9, color: 'var(--text-muted)', marginLeft: 2, letterSpacing: 0 }}>{unit}</span>
-        )}
+        {unit && <span style={{ fontSize: 9, color: 'var(--text-muted)', marginLeft: 2 }}>{unit}</span>}
       </div>
       <div
         className="mono"
@@ -303,9 +531,10 @@ function MiniMetric({ value, unit, label, tone = 'neutral' }: { value: string; u
   );
 }
 
-function IterationRow({ id, time, ago, agencies, exec, errors, cache }: Iter) {
+function IterationRow({ iter }: { iter: Iteration }) {
+  const exec = iter.avg_execution_ms ?? 0;
   const slow = exec > 800;
-  const err = errors > 0;
+  const err = iter.error_count > 0;
   const dot = err ? 'var(--hot)' : slow ? 'var(--signal)' : 'var(--live)';
   return (
     <div
@@ -331,11 +560,12 @@ function IterationRow({ id, time, ago, agencies, exec, errors, cache }: Iter) {
       />
       <div style={{ minWidth: 0 }}>
         <div className="mono" style={{ fontSize: 12, fontWeight: 700, color: 'var(--text)', lineHeight: 1 }}>
-          #{id}
-          <span style={{ color: 'var(--text-muted)', marginLeft: 8, fontWeight: 500 }}>{ago} ago</span>
+          #{iter.id}
+          <span style={{ color: 'var(--text-muted)', marginLeft: 8, fontWeight: 500 }}>{fmtAgo(iter.started_at)} ago</span>
         </div>
         <div className="mono" style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 3 }}>
-          {time} · {agencies} agencies{cache > 0 && ` · ${cache} cached`}
+          {fmtTime(iter.started_at)} · {iter.agency_count} agenc{iter.agency_count === 1 ? 'y' : 'ies'}
+          {iter.cache_hits > 0 && ` · ${iter.cache_hits} cached`}
         </div>
       </div>
       <div style={{ textAlign: 'right' }}>
@@ -344,21 +574,21 @@ function IterationRow({ id, time, ago, agencies, exec, errors, cache }: Iter) {
           style={{
             fontSize: 13,
             fontWeight: 700,
-            color: slow ? 'var(--signal)' : err ? 'var(--hot)' : 'var(--text)',
+            color: err ? 'var(--hot)' : slow ? 'var(--signal)' : 'var(--text)',
             lineHeight: 1,
           }}
         >
           {exec}
           <span style={{ fontSize: 9, color: 'var(--text-muted)', marginLeft: 2, fontWeight: 500 }}>ms</span>
         </div>
-        {err && <Tag tone="hot">{errors} err</Tag>}
+        {err && <Tag tone="hot">{iter.error_count} err</Tag>}
       </div>
     </div>
   );
 }
 
 function Sparkline({ data }: { data: number[] }) {
-  const max = Math.max(...data);
+  const max = Math.max(1, ...data);
   return (
     <div style={{ display: 'flex', alignItems: 'flex-end', gap: 2, height: 56 }}>
       {data.map((v, i) => (
@@ -366,8 +596,8 @@ function Sparkline({ data }: { data: number[] }) {
           key={i}
           style={{
             flex: 1,
-            height: `${(v / max) * 100}%`,
-            background: v > 60 ? 'var(--signal)' : 'var(--cool)',
+            height: `${Math.max(2, (v / max) * 100)}%`,
+            background: v > max * 0.6 ? 'var(--signal)' : 'var(--cool)',
             borderRadius: 1,
             opacity: 0.85,
           }}
@@ -377,32 +607,94 @@ function Sparkline({ data }: { data: number[] }) {
   );
 }
 
-// ── Analytics tab ──────────────────────────────────────────
-type Feed = { name: string; dlAvg: number; dlMax: number; execAvg: number; execMax: number; anomaly: boolean };
-const FEEDS: Feed[] = [
-  { name: 'TransLink', dlAvg: 221, dlMax: 6369, execAvg: 614, execMax: 28707, anomaly: true },
-  { name: 'TTC Toronto', dlAvg: 122, dlMax: 3379, execAvg: 608, execMax: 30754, anomaly: true },
-  { name: 'Edmonton Transit', dlAvg: 241, dlMax: 1382, execAvg: 331, execMax: 4595, anomaly: true },
-  { name: 'Halifax Transit', dlAvg: 204, dlMax: 2495, execAvg: 58, execMax: 10758, anomaly: true },
-  { name: 'London Transit', dlAvg: 25, dlMax: 19797, execAvg: 46, execMax: 855, anomaly: true },
-];
+function SkeletonBlock({ height }: { height: number }) {
+  return (
+    <div
+      style={{
+        height,
+        borderRadius: 10,
+        background: 'color-mix(in oklab, var(--text-muted) 8%, transparent)',
+        opacity: 0.6,
+      }}
+    />
+  );
+}
 
-const HIST_DATA = Array.from({ length: 60 }, (_, i) => {
-  const base = 28 + Math.sin(i * 0.4) * 6 + (i % 7) * 1.5;
-  if (i === 24) return 100;
-  if (i === 41) return 60;
-  return base;
-});
+// ── Analytics tab ─────────────────────────────────────────
+function AnalyticsBody({ analytics, latency }: { analytics: AnalyticsResponse | null; latency: LatencyPoint[] | null }) {
+  const [selectedAgencyId, setSelectedAgencyId] = useState<string | null>(null);
+  const summary = analytics?.summary;
 
-function AnalyticsBody() {
+  const feedStats = analytics?.feedStats ?? [];
+  // Default the selected agency to the first feed once loaded.
+  useEffect(() => {
+    if (selectedAgencyId == null && feedStats.length) {
+      setSelectedAgencyId(feedStats[0].agency_id);
+    }
+  }, [feedStats, selectedAgencyId]);
+
+  const selectedFeed = useMemo(
+    () => feedStats.find((f) => f.agency_id === selectedAgencyId) ?? null,
+    [feedStats, selectedAgencyId]
+  );
+
+  const agencyLatency = useMemo(
+    () => (latency ?? []).filter((p) => p.agency_id === selectedAgencyId).map((p) => p.download_ms),
+    [latency, selectedAgencyId]
+  );
+
+  const latencyStats = useMemo(() => {
+    if (!agencyLatency.length) return null;
+    const sorted = agencyLatency.slice().sort((a, b) => a - b);
+    const avg = Math.round(sorted.reduce((s, v) => s + v, 0) / sorted.length);
+    const p95 = sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95))];
+    const max = sorted[sorted.length - 1];
+    return { avg, p95, max };
+  }, [agencyLatency]);
+
+  // Top slow events across agencies — sorted by raw download_ms desc, capped.
+  const slowEvents = useMemo(() => {
+    if (!latency || !analytics) return [];
+    const avgByAgency = new Map(feedStats.map((f) => [f.agency_id, f.avg_download_ms ?? 0]));
+    return latency
+      .map((p) => ({
+        feed: p.agency_name,
+        agency_id: p.agency_id,
+        exec: p.download_ms,
+        baseline: avgByAgency.get(p.agency_id) ?? 0,
+        iteration_id: p.iteration_id,
+      }))
+      .filter((e) => e.baseline > 0 && e.exec > 3 * e.baseline)
+      .sort((a, b) => b.exec - a.exec)
+      .slice(0, 5);
+  }, [latency, analytics, feedStats]);
+
   return (
     <>
       <div style={{ padding: '18px 0 0' }}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-          <BigStat value="71,293" label="Iterations" sub="#85121 → #156420" />
-          <BigStat value="~20s" label="Cycle interval" sub="avg between polls" />
-          <BigStat value="13.6%" label="Cache hit rate" sub="of executions" tone="signal" />
-          <BigStat value="3,230" label="Slow incidents" sub="≥3× baseline" tone="hot" />
+          <BigStat
+            value={summary ? fmtInt(summary.total_iterations) : '—'}
+            label="Iterations"
+            sub={summary ? `#${summary.min_iteration_id} → #${summary.max_iteration_id}` : '—'}
+          />
+          <BigStat
+            value={summary?.avg_cycle_seconds != null ? `~${summary.avg_cycle_seconds}s` : '—'}
+            label="Cycle interval"
+            sub="avg between polls"
+          />
+          <BigStat
+            value={summary?.cache_hit_pct != null ? `${summary.cache_hit_pct}%` : '—'}
+            label="Cache hit rate"
+            sub="of executions"
+            tone="signal"
+          />
+          <BigStat
+            value={summary ? fmtInt(summary.slow_incidents) : '—'}
+            label="Slow incidents"
+            sub="≥3× baseline"
+            tone={summary && summary.slow_incidents > 0 ? 'hot' : 'neutral'}
+          />
         </div>
       </div>
 
@@ -418,9 +710,13 @@ function AnalyticsBody() {
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
             <div>
               <SectionLabel>Download latency</SectionLabel>
-              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', marginTop: 4 }}>Halifax Transit</div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', marginTop: 4 }}>
+                {selectedFeed?.agency_name ?? '—'}
+              </div>
             </div>
             <select
+              value={selectedAgencyId ?? ''}
+              onChange={(e) => setSelectedAgencyId(e.target.value || null)}
               style={{
                 padding: '5px 8px',
                 borderRadius: 8,
@@ -432,11 +728,18 @@ function AnalyticsBody() {
                 fontWeight: 700,
               }}
             >
-              <option>Halifax</option>
+              {feedStats.length === 0 && <option value="">—</option>}
+              {feedStats.map((f) => (
+                <option key={f.agency_id} value={f.agency_id}>{f.agency_name}</option>
+              ))}
             </select>
           </div>
 
-          <Histogram data={HIST_DATA} />
+          {agencyLatency.length > 0 ? (
+            <Histogram data={agencyLatency} />
+          ) : (
+            <SkeletonBlock height={80} />
+          )}
 
           <div
             style={{
@@ -451,13 +754,13 @@ function AnalyticsBody() {
             }}
           >
             <span>
-              avg <span style={{ color: 'var(--text)', fontWeight: 700 }}>204ms</span>
+              avg <span style={{ color: 'var(--text)', fontWeight: 700 }}>{latencyStats ? `${latencyStats.avg}ms` : '—'}</span>
             </span>
             <span>
-              p95 <span style={{ color: 'var(--text)', fontWeight: 700 }}>312ms</span>
+              p95 <span style={{ color: 'var(--text)', fontWeight: 700 }}>{latencyStats ? `${latencyStats.p95}ms` : '—'}</span>
             </span>
             <span>
-              max <span style={{ color: 'var(--hot)', fontWeight: 700 }}>2495ms</span>
+              max <span style={{ color: 'var(--hot)', fontWeight: 700 }}>{latencyStats ? `${latencyStats.max}ms` : '—'}</span>
             </span>
           </div>
         </div>
@@ -467,12 +770,18 @@ function AnalyticsBody() {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
           <SectionLabel>Feed health</SectionLabel>
           <span className="mono" style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 600 }}>
-            5 distinct rt_feed URLs
+            {summary ? `${summary.unique_feeds} distinct rt_feed URLs` : '—'}
           </span>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {FEEDS.map((f) => (
-            <FeedHealthCard key={f.name} {...f} />
+          {analytics == null && (
+            <>
+              <SkeletonBlock height={88} />
+              <SkeletonBlock height={88} />
+            </>
+          )}
+          {feedStats.map((f) => (
+            <FeedHealthCard key={f.agency_id} feed={f} />
           ))}
         </div>
       </div>
@@ -481,26 +790,25 @@ function AnalyticsBody() {
         <SectionLabel>Recent slow events</SectionLabel>
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-        <SlowEventRow feed="London Transit" exec={19797} time="14:08" baseline={25} />
-        <SlowEventRow feed="TTC Toronto" exec={30754} time="13:51" baseline={122} />
-        <SlowEventRow feed="TransLink" exec={6369} time="13:34" baseline={221} />
-        <SlowEventRow feed="Halifax Transit" exec={2495} time="13:12" baseline={204} />
+        {slowEvents.length === 0 && (
+          <div
+            className="mono"
+            style={{ fontSize: 11, color: 'var(--text-muted)', padding: '12px 0', textAlign: 'center' }}
+          >
+            No slow events in the recent window.
+          </div>
+        )}
+        {slowEvents.map((e, i) => (
+          <SlowEventRow key={`${e.agency_id}-${e.iteration_id}-${i}`} feed={e.feed} exec={e.exec} baseline={e.baseline} />
+        ))}
       </div>
     </>
   );
 }
 
 function BigStat({
-  value,
-  label,
-  sub,
-  tone = 'neutral',
-}: {
-  value: string;
-  label: string;
-  sub: string;
-  tone?: 'neutral' | 'signal' | 'hot' | 'live';
-}) {
+  value, label, sub, tone = 'neutral',
+}: { value: string; label: string; sub: string; tone?: 'neutral' | 'signal' | 'hot' | 'live' }) {
   const color =
     tone === 'signal' ? 'var(--signal)' : tone === 'hot' ? 'var(--hot)' : tone === 'live' ? 'var(--live)' : 'var(--text)';
   return (
@@ -538,52 +846,37 @@ function BigStat({
 }
 
 function Histogram({ data }: { data: number[] }) {
+  const max = Math.max(1, ...data);
   return (
     <div style={{ position: 'relative', height: 80 }}>
-      <div
-        style={{
-          position: 'absolute',
-          left: 0,
-          right: 0,
-          top: '55%',
-          height: 1,
-          borderTop: '1px dashed var(--border-hi)',
-          opacity: 0.7,
-        }}
-      />
-      <div
-        className="mono"
-        style={{
-          position: 'absolute',
-          left: 0,
-          top: '50%',
-          fontSize: 8,
-          color: 'var(--text-muted)',
-          transform: 'translateY(-100%)',
-        }}
-      >
-        avg
-      </div>
       <div style={{ display: 'flex', alignItems: 'flex-end', gap: 1.5, height: '100%' }}>
-        {data.map((v, i) => (
-          <div
-            key={i}
-            style={{
-              flex: 1,
-              height: `${v}%`,
-              background: v > 50 ? 'var(--hot)' : v > 38 ? 'var(--signal)' : 'var(--cool)',
-              borderRadius: '1px 1px 0 0',
-              opacity: 0.85,
-            }}
-          />
-        ))}
+        {data.map((v, i) => {
+          const pct = (v / max) * 100;
+          return (
+            <div
+              key={i}
+              style={{
+                flex: 1,
+                height: `${Math.max(2, pct)}%`,
+                background: pct > 60 ? 'var(--hot)' : pct > 38 ? 'var(--signal)' : 'var(--cool)',
+                borderRadius: '1px 1px 0 0',
+                opacity: 0.85,
+              }}
+            />
+          );
+        })}
       </div>
     </div>
   );
 }
 
-function FeedHealthCard({ name, dlAvg, dlMax, execAvg, execMax, anomaly }: Feed) {
-  const ratio = Math.min(1, Math.log(dlMax / Math.max(dlAvg, 1)) / Math.log(100));
+function FeedHealthCard({ feed }: { feed: FeedStat }) {
+  const avgDl = feed.avg_download_ms ?? 0;
+  const maxDl = feed.max_download_ms ?? 0;
+  const ratio = maxDl > 0 && avgDl > 0
+    ? Math.min(1, Math.log(maxDl / Math.max(avgDl, 1)) / Math.log(100))
+    : 0;
+  const anomaly = feed.slow_incidents > 0;
   return (
     <div
       style={{
@@ -595,14 +888,14 @@ function FeedHealthCard({ name, dlAvg, dlMax, execAvg, execMax, anomaly }: Feed)
     >
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>{name}</span>
+          <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>{feed.agency_name}</span>
           {anomaly && <Tag tone="hot">Anomaly</Tag>}
         </div>
         <IconChevron size={14} style={{ color: 'var(--text-muted)' }} />
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-        <FeedMetric label="DL avg / max" avg={dlAvg} max={dlMax} />
-        <FeedMetric label="Exec avg / max" avg={execAvg} max={execMax} />
+        <FeedMetric label="DL avg / max" avg={feed.avg_download_ms} max={feed.max_download_ms} />
+        <FeedMetric label="Exec avg / max" avg={feed.avg_exec_ms} max={feed.max_exec_ms} />
       </div>
       <div
         style={{
@@ -619,7 +912,7 @@ function FeedHealthCard({ name, dlAvg, dlMax, execAvg, execMax, anomaly }: Feed)
   );
 }
 
-function FeedMetric({ label, avg, max }: { label: string; avg: number; max: number }) {
+function FeedMetric({ label, avg, max }: { label: string; avg: number | null; max: number | null }) {
   return (
     <div>
       <div
@@ -637,13 +930,11 @@ function FeedMetric({ label, avg, max }: { label: string; avg: number; max: numb
       </div>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
         <span className="mono" style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)' }}>
-          {avg}
+          {avg ?? '—'}
         </span>
-        <span className="mono" style={{ fontSize: 10, color: 'var(--text-muted)' }}>
-          /
-        </span>
+        <span className="mono" style={{ fontSize: 10, color: 'var(--text-muted)' }}>/</span>
         <span className="mono" style={{ fontSize: 12, fontWeight: 700, color: 'var(--hot)' }}>
-          {max}
+          {max ?? '—'}
           <span style={{ fontSize: 9, color: 'var(--text-muted)', marginLeft: 2, fontWeight: 500 }}>ms</span>
         </span>
       </div>
@@ -651,8 +942,8 @@ function FeedMetric({ label, avg, max }: { label: string; avg: number; max: numb
   );
 }
 
-function SlowEventRow({ feed, exec, time, baseline }: { feed: string; exec: number; time: string; baseline: number }) {
-  const mult = Math.round(exec / baseline);
+function SlowEventRow({ feed, exec, baseline }: { feed: string; exec: number; baseline: number }) {
+  const mult = baseline > 0 ? Math.round(exec / baseline) : 0;
   return (
     <div
       style={{
@@ -683,7 +974,7 @@ function SlowEventRow({ feed, exec, time, baseline }: { feed: string; exec: numb
       <div>
         <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', lineHeight: 1.1 }}>{feed}</div>
         <div className="mono" style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 2 }}>
-          {time} · baseline {baseline}ms
+          baseline {baseline}ms
         </div>
       </div>
       <div style={{ textAlign: 'right' }}>
