@@ -490,6 +490,10 @@ export default function MapPage() {
     adapter.clearRoute();
     adapter.clearStops();
     adapter.clearWalkRoute();
+    // Drop the previous route's vehicles too — otherwise the auto-pin
+    // effect re-runs after pinnedVid is cleared, sees the stale buses,
+    // and pins a bus from the previous route until the new poll lands.
+    setBuses([]);
     setLoadedStops([]);
     setPinnedVid(null);
     shapeRef.current = null;
