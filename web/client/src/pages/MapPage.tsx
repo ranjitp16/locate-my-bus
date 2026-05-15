@@ -14,6 +14,24 @@ import { AzureMapAdapter } from '../lib/maps/azureAdapter';
 
 const POLL_INTERVAL_MS = 15_000;
 
+// Haversine great-circle distance between two lat/lng pairs, in metres.
+function haversineMeters(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
+  const R = 6_371_000;
+  const toRad = (x: number) => (x * Math.PI) / 180;
+  const dLat = toRad(b.lat - a.lat);
+  const dLng = toRad(b.lng - a.lng);
+  const h =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+}
+
+// Short, scale-appropriate distance label: "240 m" under 1 km, "1.2 km" above.
+function formatDistance(meters: number): { value: string; unit: string } {
+  if (meters < 1000) return { value: String(Math.round(meters)), unit: 'm' };
+  return { value: (meters / 1000).toFixed(1), unit: 'km' };
+}
+
 const MAP_STYLE_KEY = 'lmb-map-style';
 const AGENCY_KEY = 'lmb-agency-id';
 const ROUTE_KEY = 'lmb-route-id';
@@ -76,6 +94,17 @@ export default function MapPage() {
     return window.localStorage.getItem(AGENCY_KEY) != null;
   });
   const [lastPollAt, setLastPollAt] = useState<number>(() => Date.now());
+  // User location is best-effort — used only for the "Distance" stat in
+  // the pinned-bus popup. Null when geolocation is denied or unavailable.
+  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
+  useEffect(() => {
+    if (typeof navigator === 'undefined' || !navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(
+      (pos) => setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      () => setUserLocation(null),
+      { enableHighAccuracy: false, timeout: 8000, maximumAge: 60_000 }
+    );
+  }, []);
 
   const setPinnedVid = useCallback((vid: string | null) => setPinnedVidRaw(vid), []);
 
@@ -208,7 +237,7 @@ export default function MapPage() {
     for (const bus of buses) {
       seen.add(bus.vehicle_id);
       const pinned = bus.vehicle_id === pinnedVid;
-      const bearing = bus.bearing != null ? Number(bus.bearing) : undefined;
+      const bearing = bus.head_bearing != null ? Number(bus.head_bearing) : undefined;
       const position = { lat: Number(bus.lat), lng: Number(bus.lon) };
       const html = renderToStaticMarkup(
         <BusMark
@@ -221,7 +250,13 @@ export default function MapPage() {
       );
 
       if (adapter.hasMarker(bus.vehicle_id)) {
-        adapter.updateMarker(bus.vehicle_id, { position, html });
+        // Pinned bus position is handled by the smooth-animation effect
+        // below — let it own the position so we don't fight on each poll.
+        if (pinned) {
+          adapter.updateMarker(bus.vehicle_id, { html });
+        } else {
+          adapter.updateMarker(bus.vehicle_id, { position, html });
+        }
       } else {
         adapter.addMarker({
           id: bus.vehicle_id,
@@ -236,6 +271,48 @@ export default function MapPage() {
       if (!seen.has(id)) adapter.removeMarker(id);
     }
   }, [buses, pinnedVid, mapReady, selectedRoute, setPinnedVid]);
+
+  // ── Smooth-animate the pinned bus over 2s on each poll ────
+  // Only animates when the *same* bus stays pinned and its position
+  // changed (i.e., a poll moved it). Pinning a different bus snaps to
+  // the new bus's current position — no cross-bus interpolation.
+  const prevPinnedVidRef = useRef<string | null>(null);
+  const prevPinnedPosRef = useRef<{ lat: number; lng: number } | null>(null);
+  useEffect(() => {
+    const adapter = adapterRef.current;
+    if (!adapter || !pinnedVid) {
+      prevPinnedVidRef.current = null;
+      prevPinnedPosRef.current = null;
+      return;
+    }
+    const bus = buses.find((b) => b.vehicle_id === pinnedVid);
+    if (!bus) return;
+    const target = { lat: Number(bus.lat), lng: Number(bus.lon) };
+    const sameBus = prevPinnedVidRef.current === pinnedVid;
+    const start = sameBus ? prevPinnedPosRef.current : null;
+    prevPinnedVidRef.current = pinnedVid;
+    prevPinnedPosRef.current = target;
+
+    if (!start) {
+      // Pin just changed (or first frame) — snap, no animation.
+      adapter.updateMarker(pinnedVid, { position: target });
+      return;
+    }
+    if (start.lat === target.lat && start.lng === target.lng) return;
+
+    const duration = 2000;
+    const startTs = performance.now();
+    let raf = 0;
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - startTs) / duration);
+      const lat = start.lat + (target.lat - start.lat) * t;
+      const lng = start.lng + (target.lng - start.lng) * t;
+      adapter.updateMarker(pinnedVid, { position: { lat, lng } });
+      if (t < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [buses, pinnedVid]);
 
   // ── Clean markers + route + stops when route changes ─────
   useEffect(() => {
@@ -595,9 +672,24 @@ export default function MapPage() {
               borderTop: '1px solid var(--border)',
             }}
           >
-            <PopupStat value={String(Math.round(pinnedBus.speed ?? 0))} unit="km/h" label="Speed" />
-            <PopupStat value={String(Math.round((pinnedBus.bearing ?? 0)))} unit="°" label="Bearing" />
-            <PopupStat value="—" unit="min" label="ETA" />
+            <PopupStat
+              value={String(Math.round((pinnedBus.speed ?? 0) * 3.6))}
+              unit="km/h"
+              label="Speed"
+            />
+            <PopupStat
+              value={pinnedBus.head_bearing != null ? String(Math.round(pinnedBus.head_bearing)) : '—'}
+              unit={pinnedBus.head_bearing != null ? '°' : ''}
+              label="Bearing"
+            />
+            {(() => {
+              const d =
+                userLocation != null
+                  ? haversineMeters(userLocation, { lat: Number(pinnedBus.lat), lng: Number(pinnedBus.lon) })
+                  : null;
+              const disp = d != null ? formatDistance(d) : { value: '—', unit: '' };
+              return <PopupStat value={disp.value} unit={disp.unit} label="Distance" />;
+            })()}
           </div>
         </div>
       )}
@@ -1048,7 +1140,7 @@ function BottomSheet(p: SheetProps) {
             size={14}
             style={{
               color: 'var(--text-muted)',
-              transform: p.collapsed ? 'rotate(180deg)' : 'none',
+              transform: p.collapsed ? 'none' : 'rotate(180deg)',
               transition: 'transform 150ms ease',
             }}
           />

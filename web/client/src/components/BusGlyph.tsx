@@ -25,13 +25,23 @@ export function BusMark({ size = 38, route, pinned = false, live = false, dir = 
   const id = (idSeed ?? reactId).replace(/:/g, '');
   const bodyTransform =
     bearing != null
-      ? `rotate(${bearing - 90} 30 22)`
+      ? `rotate(${bearing - 90} 28 32)`
       : dir === 'left'
         ? 'scale(-1, 1) translate(-60, 0)'
         : undefined;
 
   return (
-    <svg width={size} height={size * (40 / 60)} viewBox="0 0 60 40" overflow="visible">
+    <svg
+      width={size}
+      height={size * (40 / 60)}
+      // Shift the viewBox so its centre (28, 32) is the wheel midpoint
+      // (wheels at cx=14 and cx=44, cy=32 — see below). The HtmlMarker's
+      // anchor maps to the SVG element centre, so this lands the marker
+      // — and the route line under it — between the wheels. Overflow is
+      // visible so the body draws above the element's painted box.
+      viewBox="-2 12 60 40"
+      overflow="visible"
+    >
       <defs>
         <linearGradient id={`${id}-body`} x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stopColor="var(--signal-soft, var(--signal))" />
@@ -39,27 +49,30 @@ export function BusMark({ size = 38, route, pinned = false, live = false, dir = 
         </linearGradient>
       </defs>
 
-      {live && (
-        <circle
-          cx="30"
-          cy="22"
-          r="26"
-          fill="var(--signal)"
-          opacity="0.22"
-          style={{ animation: 'lmb-pulse 1.8s ease-in-out infinite' }}
-        />
-      )}
-
-      {pinned && !live && (
-        <circle
-          cx="30"
-          cy="22"
-          r="32"
-          fill="color-mix(in oklab, var(--signal) 32%, transparent)"
-        />
-      )}
-
       <g transform={bodyTransform}>
+        {/* Pucks live inside the rotation group so they translate with
+            the body as it sweeps around the wheel-midpoint rotation
+            origin (28, 32). Centred on (28, 18) — the body centre —
+            so they visually wrap the bus, not the wheels. */}
+        {live && (
+          <circle
+            cx="28"
+            cy="18"
+            r="26"
+            fill="var(--signal)"
+            opacity="0.22"
+            style={{ animation: 'lmb-pulse 1.8s ease-in-out infinite' }}
+          />
+        )}
+        {pinned && !live && (
+          <circle
+            cx="28"
+            cy="18"
+            r="32"
+            fill="color-mix(in oklab, var(--signal) 32%, transparent)"
+          />
+        )}
+
         <ellipse cx="30" cy="38" rx="22" ry="2" fill="rgba(0,0,0,0.35)" />
 
         <rect

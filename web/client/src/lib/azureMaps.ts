@@ -26,7 +26,9 @@ export type Vehicle = {
   trip_id: string;
   lat: number;
   lon: number;
-  bearing?: number;
+  /** Compass degrees (0=N). Optional in GTFS-RT — not all feeds emit it. */
+  head_bearing?: number;
+  /** GTFS-RT speed is m/s — multiply by 3.6 for km/h display. */
   speed?: number;
   timestamp?: string | number;
   stop_id?: string;
