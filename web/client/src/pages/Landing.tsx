@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useIsDesktop } from '../lib/useMediaQuery';
 import { useLandingData, type LandingData } from '../lib/useLandingData';
@@ -8,6 +9,10 @@ import { IconArrowRight, IconPin, IconRoute } from '../components/Icons';
 import { MiniMap } from '../components/MiniMap';
 import { DesktopShell } from '../components/DesktopShell';
 import { MobileNavSheet } from '../components/MobileNavSheet';
+import { ComingSoonModal } from '../components/ComingSoonModal';
+
+const PLAN_TRIP_COMING_SOON =
+  "The trip planner is still in the works. Hang tight — it'll be live soon. In the meantime, you can explore live buses on the map.";
 
 function fmtInt(n: number): string {
   return n.toLocaleString('en-US');
@@ -19,11 +24,33 @@ function pluralAgency(n: number): string {
 export default function Landing() {
   const isDesktop = useIsDesktop();
   const data = useLandingData();
-  return isDesktop ? <DesktopLanding data={data} /> : <MobileLanding data={data} />;
+  const [planComingSoon, setPlanComingSoon] = useState(false);
+  const openPlanComingSoon = () => setPlanComingSoon(true);
+  return (
+    <>
+      {isDesktop ? (
+        <DesktopLanding data={data} onPlanTrip={openPlanComingSoon} />
+      ) : (
+        <MobileLanding data={data} onPlanTrip={openPlanComingSoon} />
+      )}
+      <ComingSoonModal
+        open={planComingSoon}
+        onClose={() => setPlanComingSoon(false)}
+        title="Trip planner — coming soon"
+        message={PLAN_TRIP_COMING_SOON}
+      />
+    </>
+  );
 }
 
 // ── Mobile ───────────────────────────────────────────────────
-function MobileLanding({ data }: { data: LandingData | null }) {
+function MobileLanding({
+  data,
+  onPlanTrip,
+}: {
+  data: LandingData | null;
+  onPlanTrip: () => void;
+}) {
   return (
     <div style={{ minHeight: '100%', background: 'var(--bg)' }}>
       <div style={{ maxWidth: 480, margin: '0 auto', paddingBottom: 60 }}>
@@ -101,8 +128,8 @@ function MobileLanding({ data }: { data: LandingData | null }) {
             <BusIconG size={16} />
             Open the map
           </Link>
-          <Link
-            to="/view-map?mode=plan"
+          <button
+            onClick={onPlanTrip}
             style={{
               padding: '14px 16px',
               background: 'transparent',
@@ -115,12 +142,12 @@ function MobileLanding({ data }: { data: LandingData | null }) {
               display: 'inline-flex',
               alignItems: 'center',
               gap: 6,
-              textDecoration: 'none',
+              cursor: 'pointer',
             }}
             aria-label="Plan a trip"
           >
             <IconRoute size={15} />
-          </Link>
+          </button>
         </div>
 
         <div style={{ padding: '20px 20px 0' }}>
@@ -361,7 +388,13 @@ function TickerStat({ value, label }: { value: string; label: string }) {
 }
 
 // ── Desktop ──────────────────────────────────────────────────
-function DesktopLanding({ data }: { data: LandingData | null }) {
+function DesktopLanding({
+  data,
+  onPlanTrip,
+}: {
+  data: LandingData | null;
+  onPlanTrip: () => void;
+}) {
   const t = data?.totals;
   return (
     <DesktopShell>
@@ -465,8 +498,8 @@ function DesktopLanding({ data }: { data: LandingData | null }) {
               Open the map
               <IconArrowRight size={16} />
             </Link>
-            <Link
-              to="/view-map?mode=plan"
+            <button
+              onClick={onPlanTrip}
               style={{
                 padding: '16px 22px',
                 background: 'transparent',
@@ -480,12 +513,12 @@ function DesktopLanding({ data }: { data: LandingData | null }) {
                 alignItems: 'center',
                 gap: 8,
                 whiteSpace: 'nowrap',
-                textDecoration: 'none',
+                cursor: 'pointer',
               }}
             >
               <IconRoute size={16} />
               Plan a trip
-            </Link>
+            </button>
           </div>
 
           <div

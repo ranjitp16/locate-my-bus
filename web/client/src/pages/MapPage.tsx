@@ -12,6 +12,7 @@ import type { Agency, Route, Vehicle } from '../lib/azureMaps';
 import type { LatLng, MapAdapter, StopPoint } from '../lib/maps/adapter';
 import { AzureMapAdapter } from '../lib/maps/azureAdapter';
 import { BmcModal } from '../components/BmcModal';
+import { ComingSoonModal } from '../components/ComingSoonModal';
 
 const POLL_INTERVAL_MS = 15_000;
 // Don't draw the user→nearest-stop walking overlay when the stop is
@@ -133,7 +134,7 @@ const MAP_STYLES: { value: string; label: string }[] = [
 
 export default function MapPage() {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { theme, setTheme } = useTheme();
   const [mapStyle, setMapStyleState] = useState<string>(() => {
     if (typeof window === 'undefined') return 'road';
@@ -172,9 +173,19 @@ export default function MapPage() {
   const [buses, setBuses] = useState<Vehicle[]>([]);
   const [pinnedVid, setPinnedVidRaw] = useState<string | null>(null);
   const [pollPaused, setPollPaused] = useState(false);
-  const [sheetMode, setSheetMode] = useState<'live' | 'plan'>(
-    searchParams.get('mode') === 'plan' ? 'plan' : 'live'
-  );
+  // Trip-plan mode is gated behind a "coming soon" modal for the upcoming
+  // launch — the bottom sheet stays in 'live' for now. `?mode=plan` in the
+  // URL (from old Landing links / bookmarks) triggers the modal instead,
+  // and is stripped from the URL so a refresh doesn't re-trigger it.
+  const [sheetMode, setSheetMode] = useState<'live' | 'plan'>('live');
+  const [planComingSoon, setPlanComingSoon] = useState(false);
+  useEffect(() => {
+    if (searchParams.get('mode') !== 'plan') return;
+    setPlanComingSoon(true);
+    const next = new URLSearchParams(searchParams);
+    next.delete('mode');
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
   // Returning visitors (with a persisted agency choice) land with the
   // bottom sheet collapsed — they've already done the agency setup.
   const [sheetCollapsed, setSheetCollapsed] = useState(() => {
@@ -995,6 +1006,12 @@ export default function MapPage() {
       <BottomSheet
         mode={sheetMode}
         onModeChange={(m) => {
+          // Plan mode is gated — opening it triggers the coming-soon modal
+          // and leaves the sheet on 'live'.
+          if (m === 'plan') {
+            setPlanComingSoon(true);
+            return;
+          }
           setSheetMode(m);
           setSheetCollapsed(false);
         }}
@@ -1013,6 +1030,12 @@ export default function MapPage() {
       />
 
       <BmcModal open={bmcOpen} onClose={closeBmc} bmcUrl={BMC_URL} />
+      <ComingSoonModal
+        open={planComingSoon}
+        onClose={() => setPlanComingSoon(false)}
+        title="Trip planner — coming soon"
+        message="The trip planner is still in the works. Hang tight — it'll be live soon. In the meantime, you can explore live buses on the map."
+      />
     </div>
   );
 }
