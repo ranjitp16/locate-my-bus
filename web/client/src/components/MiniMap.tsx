@@ -111,11 +111,12 @@ export function MiniMap({
 
         {showBuses &&
           buses.map((b) => (
-            <foreignObject key={b.key} x={b.x - 22} y={b.y - 16} width="44" height="32" overflow="visible">
-              <div style={{ width: 44, height: 32, position: 'relative' }}>
-                <BusMark size={42} route="24" bearing={b.angle} />
-              </div>
-            </foreignObject>
+            // BusMark renders as a nested <svg>; wrap in <g transform> so
+            // the wheel midpoint lands at (b.x, b.y). The previous
+            // <foreignObject> wrapping broke rotated buses on iOS Safari.
+            <g key={b.key} transform={`translate(${b.x - 21} ${b.y - 14})`}>
+              <BusMark size={42} route="24" bearing={b.angle} />
+            </g>
           ))}
       </svg>
     </div>
