@@ -15,6 +15,9 @@ export default function AboutPage() {
   useEffect(() => {
     const prev = document.title;
     document.title = 'About — Locate My Bus';
+    // Reset scroll on mount: visitors typically click "About" from the bottom
+    // of Landing, and React Router preserves that offset on navigation.
+    window.scrollTo(0, 0);
     return () => {
       document.title = prev;
     };
@@ -123,19 +126,40 @@ function AboutBody() {
 
       <Section title="Privacy">
         <p>
-          No login, no account, no personal data collected by this site. Google
-          Analytics counts anonymous page visits — your browser sends Google a
-          page URL, referrer, and IP, which Google uses to estimate region and
-          then discards (see Google's GA privacy policy). This site does not set
-          its own analytics cookies, and does not store your IP.
+          No login, no account, and no personal profile collected by this site.
+          Google Analytics counts anonymous page visits. GA may set first-party
+          cookies (such as <code style={codeStyle}>_ga</code>) in your browser
+          so it can tell repeat visitors apart; clearing site data removes them.
+          GA receives the page URL, referrer, and your IP, which Google uses to
+          estimate region and then drops (see Google's GA privacy policy). This
+          site itself does not store your IP.
         </p>
         <p style={{ marginTop: 10 }}>
-          Your browser stores a small number of UI preferences locally — things
+          <strong style={emphasisStyle}>Location:</strong> if you opt in to
+          features that need your position (finding the nearest bus, walking
+          directions from where you are), your browser prompts you and the
+          coordinates are sent to Azure Maps through this site's server proxy,
+          used to compute the result, then dropped. No location history is kept.
+          If you don't grant location permission, those features simply do not
+          run.
+        </p>
+        <p style={{ marginTop: 10 }}>
+          Your browser stores a small number of UI preferences locally, things
           like theme, the last agency / route you picked, when we last showed
           the donation prompt, and the dashboard access key if you've used the
-          admin pages. Clearing site data in your browser removes them. The
-          optional Buy Me a Coffee link takes you to buymeacoffee.com, which has
-          its own privacy policy.
+          admin pages. Clearing site data removes them. The preferences notice
+          on the home page does not persist a "yes" anywhere; it auto-dismisses
+          after a few seconds and shows again on the next visit.
+        </p>
+        <p style={{ marginTop: 10 }}>
+          <strong style={emphasisStyle}>Third-party assets:</strong> the support
+          modal loads a small Buy Me a Coffee logo from{' '}
+          <code style={codeStyle}>cdn.buymeacoffee.com</code>, so opening that
+          modal makes one image request to their CDN. The "Buy me a coffee" link
+          itself takes you to buymeacoffee.com, which has its own privacy policy.
+          Map tiles for the live map are proxied through this site so Microsoft
+          Azure Maps never sees your subscription key or a direct request from
+          your browser.
         </p>
       </Section>
 
@@ -211,3 +235,12 @@ const linkStyle: CSSProperties = {
 };
 
 const emphasisStyle: CSSProperties = { color: 'var(--text)' };
+
+const codeStyle: CSSProperties = {
+  fontFamily: 'var(--font-mono)',
+  fontSize: '0.92em',
+  padding: '1px 6px',
+  borderRadius: 4,
+  background: 'var(--surface)',
+  color: 'var(--text)',
+};

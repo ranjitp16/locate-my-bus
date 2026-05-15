@@ -9,6 +9,9 @@ const EXIT_ANIM_MS = 220;
 export function PreferencesBanner() {
   const [visible, setVisible] = useState(false);
   const [animateIn, setAnimateIn] = useState(false);
+  // Once the user hovers or tabs into the banner, cancel auto-dismiss so we
+  // don't yank focus or hide the notice mid-read. The X button remains.
+  const [engaged, setEngaged] = useState(false);
   const exitTimerRef = useRef<number | null>(null);
   const dismissingRef = useRef(false);
 
@@ -24,10 +27,10 @@ export function PreferencesBanner() {
   }, []);
 
   useEffect(() => {
-    if (!visible) return;
+    if (!visible || engaged) return;
     const hideId = window.setTimeout(dismiss, AUTO_DISMISS_MS);
     return () => window.clearTimeout(hideId);
-  }, [visible]);
+  }, [visible, engaged]);
 
   useEffect(() => () => {
     if (exitTimerRef.current != null) window.clearTimeout(exitTimerRef.current);
@@ -59,6 +62,8 @@ export function PreferencesBanner() {
       }}
     >
       <div
+        onMouseEnter={() => setEngaged(true)}
+        onFocus={() => setEngaged(true)}
         style={{
           pointerEvents: 'auto',
           width: '100%',
