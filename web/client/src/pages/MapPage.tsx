@@ -984,21 +984,33 @@ function BottomSheet(p: SheetProps) {
         overflowY: 'auto',
       }}
     >
-      {/* Drag handle doubles as a tap-to-collapse target. */}
+      {/* Tap-to-toggle target with a chevron that rotates to match
+          state — was a thin drag bar that didn't read as collapsible. */}
       <button
         onClick={p.onToggleCollapse}
         aria-label={p.collapsed ? 'Expand sheet' : 'Collapse sheet'}
         style={{
           display: 'flex',
+          alignItems: 'center',
           justifyContent: 'center',
           padding: '8px 0 4px',
           width: '100%',
           background: 'transparent',
           border: 'none',
           cursor: 'pointer',
+          color: 'var(--text-muted)',
         }}
       >
-        <div style={{ width: 40, height: 4, borderRadius: 2, background: 'var(--border-hi)' }} />
+        <IconChevron
+          size={24}
+          stroke={2.25}
+          style={{
+            // Source glyph points right; rotate so it points up when
+            // collapsed and down when expanded.
+            transform: p.collapsed ? 'rotate(-90deg)' : 'rotate(90deg)',
+            transition: 'transform 150ms ease',
+          }}
+        />
       </button>
 
       <div
