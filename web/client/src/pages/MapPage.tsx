@@ -11,12 +11,21 @@ import {
 import type { Agency, Route, Vehicle } from '../lib/azureMaps';
 import type { LatLng, MapAdapter, StopPoint } from '../lib/maps/adapter';
 import { AzureMapAdapter } from '../lib/maps/azureAdapter';
+import { BmcModal } from '../components/BmcModal';
 
 const POLL_INTERVAL_MS = 15_000;
 // Don't draw the user→nearest-stop walking overlay when the stop is
 // farther than this — the path becomes useless and burns an Azure
 // Maps routing call for no gain.
 const MAX_WALK_ROUTE_METERS = 5000;
+
+// Buy Me a Coffee prompt — shown on the 2nd map-page mount onwards,
+// and at most once per 24 h after a dismissal or Support click.
+const BMC_VISIT_COUNT_KEY = 'lmb-map-visits';
+const BMC_DISMISSED_AT_KEY = 'lmb-bmc-dismissed-at';
+const BMC_MIN_VISITS = 2;
+const BMC_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+const BMC_URL = 'https://buymeacoffee.com/ranjitp16';
 
 // Haversine great-circle distance between two lat/lng pairs, in metres.
 function haversineMeters(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
@@ -173,6 +182,7 @@ export default function MapPage() {
     return window.localStorage.getItem(AGENCY_KEY) != null;
   });
   const [lastPollAt, setLastPollAt] = useState<number>(() => Date.now());
+  const [bmcOpen, setBmcOpen] = useState(false);
   // User location is best-effort — used for the popup distance stat and
   // for picking the nearest stop to walk to. Null when denied/unavailable.
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
@@ -183,6 +193,21 @@ export default function MapPage() {
       () => setUserLocation(null),
       { enableHighAccuracy: false, timeout: 8000, maximumAge: 60_000 }
     );
+  }, []);
+
+  // ── BMC prompt: count visits, gate on cooldown ─────────────
+  useEffect(() => {
+    const visits = (Number(localStorage.getItem(BMC_VISIT_COUNT_KEY)) || 0) + 1;
+    localStorage.setItem(BMC_VISIT_COUNT_KEY, String(visits));
+    if (visits < BMC_MIN_VISITS) return;
+    const dismissedAt = Number(localStorage.getItem(BMC_DISMISSED_AT_KEY)) || 0;
+    if (Date.now() - dismissedAt < BMC_COOLDOWN_MS) return;
+    setBmcOpen(true);
+  }, []);
+
+  const closeBmc = useCallback(() => {
+    setBmcOpen(false);
+    localStorage.setItem(BMC_DISMISSED_AT_KEY, String(Date.now()));
   }, []);
 
   // Stops loaded for the pinned trip. Mirror of what the adapter holds,
@@ -986,6 +1011,8 @@ export default function MapPage() {
         onTogglePause={() => setPollPaused((p) => !p)}
         lastPollAt={lastPollAt}
       />
+
+      <BmcModal open={bmcOpen} onClose={closeBmc} bmcUrl={BMC_URL} />
     </div>
   );
 }
