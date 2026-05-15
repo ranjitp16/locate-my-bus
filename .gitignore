@@ -14,3 +14,5 @@
 *.sqlite3
 .superpowers/
 .playwright-mcp/
+.claude/
+docs/superpowers/

@@ -39,45 +39,47 @@ app.use(helmet({
     contentSecurityPolicy: {
         directives: {
             defaultSrc: ["'self'"],
+            // All app JS is bundled and served same-origin from /dist/assets.
+            // 'unsafe-inline' stays because index.html ships two small
+            // inline scripts the page hard-depends on: the pre-paint
+            // theme bootstrap (sets data-theme before first render to
+            // avoid a light/dark flash) and the Google Analytics gtag
+            // initialiser. Both could be replaced with hashed/nonce'd
+            // scripts later — until then, keep the relaxation explicit.
             scriptSrc: [
                 "'self'",
-                "https://cdn.jsdelivr.net",
                 "'unsafe-inline'",
                 "https://atlas.microsoft.com",
-                "https://www.googletagmanager.com",
-                "https://static.cloudflareinsights.com"
+                "https://www.googletagmanager.com"
             ],
+            // 'unsafe-inline' needed for React's heavy use of style={{...}}.
             styleSrc: [
                 "'self'",
-                "https://cdn.jsdelivr.net",
-                "https://cdnjs.cloudflare.com",
+                "'unsafe-inline'",
                 "https://atlas.microsoft.com",
-                "'unsafe-inline'"
+                "https://fonts.googleapis.com"
             ],
             fontSrc: [
                 "'self'",
-                "https://cdn.jsdelivr.net",
-                "https://cdnjs.cloudflare.com",
-                "https://atlas.microsoft.com"
+                "https://atlas.microsoft.com",
+                "https://fonts.gstatic.com"
             ],
             imgSrc: [
                 "'self'",
                 "data:",
-                "https://*.tile.openstreetmap.org",
-                "https://*.basemaps.cartocdn.com",
-                "https://tiles.stadiamaps.com",
+                "https://atlas.microsoft.com",
                 "https://www.google-analytics.com",
                 "https://*.google-analytics.com",
             ],
+            // Azure Maps tiles/styles normally go through /api/azure-maps,
+            // but atlas.microsoft.com stays whitelisted as a safety net for
+            // any SDK request that bypasses transformRequest.
             connectSrc: [
                 "'self'",
                 "https://atlas.microsoft.com",
-                "https://cdn.jsdelivr.net",
                 "https://www.googletagmanager.com",
                 "https://www.google-analytics.com",
-                "https://*.google-analytics.com",
-                "https://cloudflareinsights.com",
-                "https://*.cloudflareinsights.com",
+                "https://*.google-analytics.com"
             ],
             workerSrc: [
                 "'self'",
@@ -96,7 +98,10 @@ const authMiddleware = (req, res, next) => {
     next();
 };
 
-app.use(express.static(path.join(__dirname, 'public')))
+// Serve the React SPA build first, then fall through to other static assets
+// (robots.txt, sitemap.xml, og-image, etc.) so they keep working.
+app.use(express.static(path.join(__dirname, 'public', 'dist')));
+app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -241,27 +246,31 @@ app
         res.send(rows)
     })
 
-app.get('/dash/agencies', async (req, res) => {
-    return res.sendFile(path.join(__dirname, 'public/addAgency.html'))
-});
-
-app.get('/dash/monitor', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public/dashboard.html'));
-});
-
 app.get('/api/dashboard/stats', authMiddleware, async (req, res) => {
     try {
+        // The LEFT JOIN can produce iteration rows with no executions
+        // (fe.id IS NULL). Use COUNT(fe.id) — not COUNT(*) — as the
+        // denominator so the percentages reflect executions, not rows.
         const { rows } = await pool.query(`
             SELECT
-                COUNT(DISTINCT pi.id)::int                                                                      AS total_iterations,
-                COUNT(fe.id)::int                                                                               AS total_executions,
-                ROUND(AVG(fe.execution_time_us) / 1000)::int                                                   AS avg_execution_ms,
-                ROUND(100.0 * SUM(CASE WHEN fe.is_cache_hit  THEN 1 ELSE 0 END) / NULLIF(COUNT(*), 0), 1)     AS cache_hit_pct,
-                ROUND(100.0 * SUM(CASE WHEN fe.status = 'error' THEN 1 ELSE 0 END) / NULLIF(COUNT(*), 0), 1)  AS error_pct
+                COUNT(DISTINCT pi.id)::int                                                                            AS total_iterations,
+                COUNT(fe.id)::int                                                                                     AS total_executions,
+                ROUND(AVG(fe.execution_time_us) / 1000)::int                                                          AS avg_execution_ms,
+                ROUND(100.0 * SUM(CASE WHEN fe.is_cache_hit  THEN 1 ELSE 0 END) / NULLIF(COUNT(fe.id), 0), 1)        AS cache_hit_pct,
+                ROUND(100.0 * SUM(CASE WHEN fe.status = 'error' THEN 1 ELSE 0 END) / NULLIF(COUNT(fe.id), 0), 1)     AS error_pct,
+                MIN(pi.started_at)                                                                                    AS oldest_iteration_at
             FROM public.poll_iteration pi
             LEFT JOIN public.feed_execution fe ON fe.poll_iteration_id = pi.id
         `);
-        res.json(rows[0]);
+        const r = rows[0] ?? {};
+        res.json({
+            total_iterations: r.total_iterations ?? 0,
+            total_executions: r.total_executions ?? 0,
+            avg_execution_ms: r.avg_execution_ms == null ? null : Number(r.avg_execution_ms),
+            cache_hit_pct: r.cache_hit_pct == null ? null : Number(r.cache_hit_pct),
+            error_pct: r.error_pct == null ? null : Number(r.error_pct),
+            oldest_iteration_at: r.oldest_iteration_at,
+        });
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: 'Failed to fetch stats.' });
@@ -316,8 +325,97 @@ app.get('/api/dashboard/executions/:poll_iteration_id', authMiddleware, async (r
     }
 });
 
-app.get('/view-map', async (req, res) => {
-    return res.sendFile(path.join(__dirname, 'public/map.html'))
+// Public landing-page snapshot: top-line counters + a row per agency.
+// Numbers reflect the current DB state; no auth so the homepage can render them.
+app.get('/api/landing', async (req, res) => {
+    try {
+        const [totalsRes, perAgencyRes] = await Promise.all([
+            pool.query(`
+                SELECT
+                    (SELECT COUNT(*) FROM public.agency)::int                        AS agencies,
+                    (SELECT COUNT(*) FROM public.route)::int                         AS routes,
+                    (SELECT COUNT(*) FROM public.live_vehicle_position)::int         AS buses_live,
+                    (SELECT COUNT(*) FROM public.poll_iteration
+                        WHERE started_at >= NOW() - INTERVAL '24 hours')::int        AS polls_24h,
+                    (SELECT ROUND(
+                        100.0 * SUM(CASE WHEN fe.status = 'error' THEN 1 ELSE 0 END)
+                              / NULLIF(COUNT(*), 0), 1)
+                     FROM public.feed_execution fe
+                     JOIN public.poll_iteration pi ON pi.id = fe.poll_iteration_id
+                     WHERE pi.started_at >= NOW() - INTERVAL '24 hours')             AS error_rate_pct,
+                    (SELECT ROUND(AVG(fe.execution_time_us) / 1000)::int
+                     FROM public.feed_execution fe
+                     JOIN public.poll_iteration pi ON pi.id = fe.poll_iteration_id
+                     WHERE pi.started_at >= NOW() - INTERVAL '24 hours')             AS avg_latency_ms
+            `),
+            // Aggregate once per source table (routes, live vehicles,
+            // last-24h feed_execution) and LEFT JOIN per agency, instead
+            // of issuing four correlated subqueries per agency row. The
+            // shape of the response is unchanged.
+            pool.query(`
+                WITH
+                  routes_per_agency AS (
+                    SELECT agency_id, COUNT(*)::int AS routes
+                    FROM public.route
+                    GROUP BY agency_id
+                  ),
+                  buses_per_agency AS (
+                    SELECT agency_id, COUNT(*)::int AS buses_live
+                    FROM public.live_vehicle_position
+                    GROUP BY agency_id
+                  ),
+                  exec_24h AS (
+                    SELECT
+                        fe.agency_id,
+                        ROUND(
+                            100.0 * SUM(CASE WHEN fe.status = 'error' THEN 1 ELSE 0 END)
+                                  / NULLIF(COUNT(*), 0),
+                            1
+                        ) AS error_rate_pct,
+                        ROUND(AVG(fe.execution_time_us) / 1000)::int AS avg_latency_ms
+                    FROM public.feed_execution fe
+                    JOIN public.poll_iteration pi ON pi.id = fe.poll_iteration_id
+                    WHERE pi.started_at >= NOW() - INTERVAL '24 hours'
+                    GROUP BY fe.agency_id
+                  )
+                SELECT
+                    a.id                          AS agency_id,
+                    a.name                        AS agency_name,
+                    COALESCE(rpa.routes, 0)       AS routes,
+                    COALESCE(bpa.buses_live, 0)   AS buses_live,
+                    ex.error_rate_pct             AS error_rate_pct,
+                    ex.avg_latency_ms             AS avg_latency_ms
+                FROM public.agency a
+                LEFT JOIN routes_per_agency rpa ON rpa.agency_id = a.id
+                LEFT JOIN buses_per_agency  bpa ON bpa.agency_id = a.id
+                LEFT JOIN exec_24h          ex  ON ex.agency_id  = a.id
+                ORDER BY a.name ASC
+            `),
+        ]);
+        const t = totalsRes.rows[0] || {};
+        res.json({
+            totals: {
+                agencies: t.agencies || 0,
+                routes: t.routes || 0,
+                busesLive: t.buses_live || 0,
+                polls24h: t.polls_24h || 0,
+                errorRatePct: t.error_rate_pct == null ? null : Number(t.error_rate_pct),
+                avgLatencyMs: t.avg_latency_ms == null ? null : Number(t.avg_latency_ms),
+            },
+            agencies: perAgencyRes.rows.map((r) => ({
+                id: r.agency_id,
+                name: r.agency_name,
+                routes: r.routes,
+                busesLive: r.buses_live,
+                stale: r.buses_live === 0,
+                errorRatePct: r.error_rate_pct == null ? null : Number(r.error_rate_pct),
+                avgLatencyMs: r.avg_latency_ms == null ? null : Number(r.avg_latency_ms),
+            })),
+        });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Failed to fetch landing data.' });
+    }
 });
 
 app.get('/api/agencies', async (req, res) => {
@@ -442,10 +540,15 @@ app.get('/api/dashboard/analytics', authMiddleware, async (req, res) => {
                 WHERE NOT fe.is_cache_hit AND aa.avg_dl > 0 AND fe.download_time_us > 3 * aa.avg_dl
             `)
         ]);
+        const s = summaryRes.rows[0] ?? {};
         res.json({
             feedStats: feedRes.rows,
             summary: {
-                ...summaryRes.rows[0],
+                total_iterations: s.total_iterations ?? 0,
+                min_iteration_id: s.min_iteration_id ?? 0,
+                max_iteration_id: s.max_iteration_id ?? 0,
+                unique_feeds: s.unique_feeds ?? 0,
+                cache_hit_pct: s.cache_hit_pct == null ? null : Number(s.cache_hit_pct),
                 avg_cycle_seconds: cycleRes.rows[0]?.avg_cycle_seconds ?? null,
                 slow_incidents: slowRes.rows[0]?.slow_incidents ?? 0,
             }
@@ -547,6 +650,15 @@ app.get('/api/trip-plan/:agency_id', async (req, res) => {
         console.error('[trip-plan]', err);
         res.status(500).json({ error: 'Trip planning failed' });
     }
+});
+
+// SPA fallback: any unmatched GET that doesn't look like a file or API request
+// returns the React shell so client-side routing can take over.
+app.use((req, res, next) => {
+    if (req.method !== 'GET') return next();
+    if (req.path.startsWith('/api/') || req.path.startsWith('/routes/') || req.path.startsWith('/live/')) return next();
+    if (req.path.includes('.')) return next();
+    res.sendFile(path.join(__dirname, 'public', 'dist', 'index.html'));
 });
 
 app.listen(port, () => {

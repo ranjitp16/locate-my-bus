@@ -1,0 +1,257 @@
+/* ─────────────────────────────────────────────────────────────
+   Locate My Bus — Design Tokens
+   Bricolage Grotesque (display) · Manrope (UI) · JetBrains Mono (data)
+   Electric-blue signal accent
+   ───────────────────────────────────────────────────────────── */
+
+@import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap');
+
+:root {
+  /* Type */
+  --font-display: 'Bricolage Grotesque', 'Manrope', system-ui, sans-serif;
+  --font-sans:    'Manrope', system-ui, sans-serif;
+  --font-mono:    'JetBrains Mono', 'SF Mono', Menlo, monospace;
+
+  /* Brand signal — electric blue by default */
+  --signal:        #3B82F6;
+  --signal-soft:   #60A5FA;
+  --signal-ink:    #FFFFFF;
+  --signal-tint:   color-mix(in oklab, var(--signal) 14%, transparent);
+
+  --live:          #22C55E;
+  --hot:           #FF453A;
+  --warn:          #F59E0B;
+
+  /* Geometry */
+  --r-xs: 4px;
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 20px;
+  --r-xl: 28px;
+}
+
+/* ── DARK ──────────────────────────────────────────────────── */
+[data-theme="dark"] {
+  --bg:           #0A0E14;
+  --bg-elevated:  #0F141C;
+  --surface:      #131A25;
+  --surface-alt:  #1A2230;
+  --surface-hi:   #232C3D;
+  --border:       #232C3D;
+  --border-hi:    #364158;
+  --text:         #ECEEF1;
+  --text-soft:    #BDC4D0;
+  --text-muted:   #6B7689;
+  --text-faint:   #3F4A5E;
+
+  --map-land:     #141B26;
+  --map-land-2:   #1B2330;
+  --map-road:     #2C3850;
+  --map-road-mj:  #3D4D6B;
+  --map-water:    #0B2034;
+  --map-park:     #15281D;
+  --map-label:    #6B7689;
+
+  /* Chart/data baseline — kept distinct from --signal so charts stay
+     legible regardless of which accent the user picks. */
+  --cool:         #5B6B7A;
+}
+
+/* ── LIGHT ─────────────────────────────────────────────────── */
+[data-theme="light"] {
+  --bg:           #F6F4EE;
+  --bg-elevated:  #FBF9F3;
+  --surface:      #FFFFFF;
+  --surface-alt:  #F1EEE3;
+  --surface-hi:   #E6E2D2;
+  --border:       #E0DBCA;
+  --border-hi:    #BCB6A1;
+  --text:         #0A0E14;
+  --text-soft:    #2A2F38;
+  --text-muted:   #6E6A5C;
+  --text-faint:   #B5B0A0;
+
+  --map-land:     #ECE7D6;
+  --map-land-2:   #E2DCC8;
+  --map-road:     #FFFFFF;
+  --map-road-mj:  #FFD27A;
+  --map-water:    #BCD4E8;
+  --map-park:     #CFE0C0;
+  --map-label:    #6E6A5C;
+
+  --cool:         #A0AABA;
+}
+
+/* ── Base ──────────────────────────────────────────────────── */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body, #root { height: 100%; }
+
+body {
+  background: var(--bg);
+  font-family: var(--font-sans);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+button { font-family: inherit; cursor: pointer; }
+
+.mono { font-family: var(--font-mono); font-feature-settings: "tnum" 1, "zero" 1; }
+.display { font-family: var(--font-display); font-feature-settings: "ss01" 1; }
+.tnum { font-variant-numeric: tabular-nums; }
+
+/* Pulse for live dots */
+@keyframes lmb-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.55; transform: scale(1.15); }
+}
+.lmb-pulse { animation: lmb-pulse 1.6s ease-in-out infinite; }
+
+/* Tape strip scroll */
+@keyframes lmb-tape {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+
+@keyframes lmb-tape-rev {
+  from { transform: translateX(-50%); }
+  to   { transform: translateX(0); }
+}
+
+/* Dash flow for route lines */
+@keyframes lmb-dash {
+  to { stroke-dashoffset: -40; }
+}
+
+/* Slow drift along a path (used for buses on landing) */
+@keyframes lmb-drift {
+  0%   { offset-distance: 0%; }
+  100% { offset-distance: 100%; }
+}
+
+/* Soft entry */
+@keyframes lmb-fade-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* User-location marker (pulsing blue dot) */
+.lmb-user-location {
+  position: relative;
+  width: 16px;
+  height: 16px;
+}
+.lmb-user-location::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: #2979ff;
+  opacity: 0.35;
+  animation: lmb-pulse-ring 1.8s ease-out infinite;
+}
+.lmb-user-location-dot {
+  position: absolute;
+  inset: 3px;
+  border-radius: 50%;
+  background: #2979ff;
+  border: 2px solid #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+}
+@keyframes lmb-pulse-ring {
+  0%   { transform: scale(1);   opacity: 0.6; }
+  100% { transform: scale(2.8); opacity: 0; }
+}
+
+/* ── Azure Maps popup theme override ──────────────────────────
+   The SDK paints popups (.popup-content-container) with a fixed
+   white card. On dark mode the themed text inside vanishes against
+   that white. Override the container + arrow + close button to use
+   our tokens so popups follow the active theme. Dual selectors
+   cover both v2 (.atlas-popup-*) and v3 (.popup-*) class names. */
+.popup-content-container,
+.atlas-popup-content-container {
+  background-color: var(--bg-elevated) !important;
+  border: 1px solid var(--border) !important;
+  color: var(--text) !important;
+  border-radius: 10px !important;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3) !important;
+}
+.popup-close,
+.popup-close-button,
+.atlas-popup-close-button {
+  color: var(--text-muted) !important;
+  background: transparent !important;
+  width: 28px !important;
+  height: 28px !important;
+  top: 6px !important;
+  right: 6px !important;
+  padding: 0 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  border-radius: 8px !important;
+  font-size: 20px !important;
+  line-height: 1 !important;
+}
+.popup-close:hover,
+.popup-close-button:hover,
+.atlas-popup-close-button:hover {
+  color: var(--text) !important;
+  background: var(--surface) !important;
+}
+.popup-container,
+.atlas-popup-container {
+  border-color: var(--bg-elevated) !important;
+}
+/* The SDK ships a fixed downward-pointing arrow, which lies even when the
+   popup is positioned below/left/right of its anchor. Hide it and draw
+   our own pseudo-element arrow that follows the orientation class the
+   SDK adds to .popup-container (.top / .bottom / .left / .right). */
+.popup-arrow,
+.atlas-popup-tip {
+  display: none !important;
+}
+.popup-content-container {
+  position: relative;
+}
+.popup-container.bottom .popup-content-container::after,
+.popup-container.top .popup-content-container::after,
+.popup-container.left .popup-content-container::after,
+.popup-container.right .popup-content-container::after {
+  content: '';
+  position: absolute;
+  width: 0;
+  height: 0;
+  border: 10px solid transparent;
+  pointer-events: none;
+}
+/* Popup is ABOVE anchor: arrow at bottom of popup pointing DOWN. */
+.popup-container.bottom .popup-content-container::after {
+  bottom: -10px;
+  left: 50%;
+  transform: translateX(-50%);
+  border-top-color: var(--bg-elevated);
+}
+/* Popup is BELOW anchor: arrow at top of popup pointing UP. */
+.popup-container.top .popup-content-container::after {
+  top: -10px;
+  left: 50%;
+  transform: translateX(-50%);
+  border-bottom-color: var(--bg-elevated);
+}
+/* Popup is to RIGHT of anchor: arrow at left of popup pointing LEFT. */
+.popup-container.left .popup-content-container::after {
+  left: -10px;
+  top: 50%;
+  transform: translateY(-50%);
+  border-right-color: var(--bg-elevated);
+}
+/* Popup is to LEFT of anchor: arrow at right of popup pointing RIGHT. */
+.popup-container.right .popup-content-container::after {
+  right: -10px;
+  top: 50%;
+  transform: translateY(-50%);
+  border-left-color: var(--bg-elevated);
+}

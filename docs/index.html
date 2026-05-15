@@ -303,11 +303,12 @@
       <p class="subtitle">Any GTFS-RT agency &mdash; live tracking + trip planning</p>
       <p>
         Onboard any GTFS-compatible transit agency, and a C++ daemon fetches live vehicle positions
-        every 15 seconds, stores them in PostgreSQL, and serves them to an Azure Maps browser client.
-        Your location is tracked in real-time — the nearest bus is automatically pinned and its route
-        drawn with animated SVG overlay. Plan trips with walking routes, multi-transfer bus connections,
-        and live bus tracking. Dynamic agency and route selectors, pinnable markers, light/dark theme,
-        resizable bottom sheet with trip timeline, and a built-in poll monitor dashboard.
+        every 15 seconds, stores them in PostgreSQL, and serves them to a React 18 + TypeScript
+        single-page app. The map view talks to a provider-neutral <code>MapAdapter</code> (Azure
+        Maps today — swap by writing one adapter), pinning a bus draws its trip polyline, ordered
+        stop dots, and a walking path from you to the nearest stop. Pinned bus positions interpolate
+        smoothly between 15-second polls. Includes a live agencies dashboard, a poll-monitor
+        dashboard with feed analytics, and a multi-transfer trip planner.
       </p>
       <div class="links">
         <a href="https://bus.ranjitpandey.dev">
@@ -355,8 +356,12 @@
           <p>Enter a destination by typing an address or dropping a pin. The server finds optimal transit routes (direct, 1-transfer, or 2-transfer) ranked by walking distance, transfers, and time. Each option shows a step-by-step timeline with departure, boarding, alighting, and arrival times. Walking paths and bus route shapes are drawn on the map. Live bus positions are tracked automatically. Respects GTFS calendar schedules (weekday/weekend/holiday) and tags routes without a live bus as &ldquo;scheduled.&rdquo;</p>
         </div>
         <div class="stack-item">
-          <h3>Azure Maps (SDK v3)</h3>
-          <p>Dynamic agency and route selectors populate from the API. Polls every 15 seconds. The browser Geolocation API tracks your position as a pulsing blue dot &mdash; the nearest bus is auto-pinned each poll and its route drawn as an animated SVG overlay. The pinned bus animates smoothly along the route shape between polls. Every bus popup shows its distance from you. Click a marker to manually pin it; click the map background to return to auto-pin. Light/dark theme and zoom position persist across sessions.</p>
+          <h3>React 18 SPA &amp; MapAdapter</h3>
+          <p>Vite-built, code-split per route. The map page talks exclusively to a provider-neutral <code>MapAdapter</code> &mdash; the Azure implementation owns the lazy SDK import, CSS, and <code>[lng, lat]</code> quirks. Swap providers (Mapbox, Leaflet, MapLibre&hellip;) by writing one new adapter file. Bus markers rotate to match GTFS <code>head_bearing</code>. Pinning a bus draws its trip polyline + ordered stop dots and fetches a walking path from your location to the nearest stop. The pinned bus interpolates between polls over 2 s instead of snapping. Map style, app theme, the running-vs-all routes filter, and the last-picked agency/route persist in <code>localStorage</code>.</p>
+        </div>
+        <div class="stack-item">
+          <h3>Dashboards</h3>
+          <p><code>/dash/agencies</code> shows real per-agency route count, average latency, error rate, and a Live/Stale tag &mdash; all backed by <code>/api/landing</code>. <code>/dash/monitor</code> is fully wired to <code>/api/dashboard/*</code> with daemon uptime, a recent-exec sparkline, per-agency download-latency histograms, and slow-event detection. Both pages share a <code>useAccessKey</code> hook (<code>sessionStorage</code>-backed) and a local-draft Unlock prompt so the input doesn&rsquo;t fire four authed fetches on every keystroke.</p>
         </div>
       </div>
     </section>
@@ -371,10 +376,14 @@
         <span class="tag">PostgreSQL</span>
         <span class="tag">Node.js</span>
         <span class="tag">Express</span>
+        <span class="tag">React 18</span>
+        <span class="tag">TypeScript</span>
+        <span class="tag">Vite</span>
+        <span class="tag">React Router</span>
         <span class="tag">Azure Maps SDK v3</span>
-        <span class="tag">Bootstrap 5</span>
         <span class="tag">Docker</span>
         <span class="tag">Dev Containers</span>
+        <span class="tag">GitHub Actions</span>
       </div>
     </section>
 
