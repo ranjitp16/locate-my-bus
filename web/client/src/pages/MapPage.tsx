@@ -13,6 +13,10 @@ import type { LatLng, MapAdapter, StopPoint } from '../lib/maps/adapter';
 import { AzureMapAdapter } from '../lib/maps/azureAdapter';
 
 const POLL_INTERVAL_MS = 15_000;
+// Don't draw the user→nearest-stop walking overlay when the stop is
+// farther than this — the path becomes useless and burns an Azure
+// Maps routing call for no gain.
+const MAX_WALK_ROUTE_METERS = 5000;
 
 // Haversine great-circle distance between two lat/lng pairs, in metres.
 function haversineMeters(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
@@ -188,6 +192,11 @@ export default function MapPage() {
 
   const setPinnedVid = useCallback((vid: string | null) => setPinnedVidRaw(vid), []);
 
+  // Tracks which route id we've already auto-pinned for. Reset on route
+  // change so each new route gets one fresh auto-pin opportunity; never
+  // reset on manual unpin so the user's intent sticks.
+  const autoPinnedRouteRef = useRef<string | null>(null);
+
   // ── Initialize the map adapter once ───────────────────────
   // Swap providers by replacing AzureMapAdapter with another impl
   // of MapAdapter — no other change in this file should be needed.
@@ -309,6 +318,53 @@ export default function MapPage() {
       clearInterval(intervalId);
     };
   }, [selectedAgency, selectedRoute, pollPaused]);
+
+  // ── Auto-pin the nearest bus once per route selection ─────
+  // Fires when buses arrive for a freshly-selected route. If the user's
+  // location is known, pin the bus with the smallest haversine distance.
+  // Otherwise wait up to 1.5s for geolocation; if it doesn't resolve in
+  // time, pin the last bus in the live array as a sensible fallback.
+  // Guarded by `autoPinnedRouteRef` so manual unpins are never undone
+  // and so we don't re-fire on every poll. Reset on route change.
+  useEffect(() => {
+    if (!selectedRoute) return;
+    if (pinnedVid != null) return;
+    if (!buses.length) return;
+    if (autoPinnedRouteRef.current === selectedRoute.id) return;
+
+    if (userLocation) {
+      let bestId = buses[0].vehicle_id;
+      let bestD = haversineMeters(userLocation, {
+        lat: Number(buses[0].lat),
+        lng: Number(buses[0].lon),
+      });
+      for (let i = 1; i < buses.length; i++) {
+        const d = haversineMeters(userLocation, {
+          lat: Number(buses[i].lat),
+          lng: Number(buses[i].lon),
+        });
+        if (d < bestD) {
+          bestD = d;
+          bestId = buses[i].vehicle_id;
+        }
+      }
+      autoPinnedRouteRef.current = selectedRoute.id;
+      setPinnedVid(bestId);
+      return;
+    }
+
+    // No location yet — give geolocation 1.5s to resolve before falling
+    // back. If userLocation arrives during that window, the effect
+    // re-runs (deps change), this timer is cleared, and the branch above
+    // fires instead. If the user changes route or manually pins in the
+    // meantime, cleanup also cancels the timer.
+    const timerId = window.setTimeout(() => {
+      if (autoPinnedRouteRef.current === selectedRoute.id) return;
+      autoPinnedRouteRef.current = selectedRoute.id;
+      setPinnedVid(buses[buses.length - 1].vehicle_id);
+    }, 1500);
+    return () => window.clearTimeout(timerId);
+  }, [buses, userLocation, pinnedVid, selectedRoute, setPinnedVid]);
 
   // ── Sync markers (create/move/re-render/remove) ────────────
   // One effect handles position, heading, pinned state, and lifecycle.
@@ -437,6 +493,7 @@ export default function MapPage() {
     setLoadedStops([]);
     setPinnedVid(null);
     shapeRef.current = null;
+    autoPinnedRouteRef.current = null;
   }, [selectedRoute, setPinnedVid]);
 
   // ── Draw route polyline + stops for the *pinned* vehicle's trip ──
@@ -565,6 +622,18 @@ export default function MapPage() {
     }
     const stop = loadedStops.find((s) => s.id === nearestStopId);
     if (!stop) return;
+
+    // Distance gate: skip the fetch + draw when the nearest stop on
+    // the pinned trip is too far to walk. Calculated before the API
+    // call so out-of-range trips don't burn an Azure Maps route quota.
+    // Resetting the dedup key ensures a later in-range move re-fetches.
+    const distM = haversineMeters(userLocation, stop.position);
+    if (distM > MAX_WALK_ROUTE_METERS) {
+      adapter.clearWalkRoute();
+      lastWalkKeyRef.current = null;
+      return;
+    }
+
     const key = `${userLocation.lat.toFixed(5)},${userLocation.lng.toFixed(5)}|${nearestStopId}`;
     if (lastWalkKeyRef.current === key) return;
     lastWalkKeyRef.current = key;
