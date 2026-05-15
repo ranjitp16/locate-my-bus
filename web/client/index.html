@@ -40,11 +40,17 @@
     }
     </script>
 
-    <!-- Apply persisted theme before paint to avoid a flash. -->
+    <!-- Apply persisted theme before paint to avoid a flash.
+         localStorage access can throw in privacy modes / embedded
+         browsers — fall back to dark in that case so the page still
+         boots and renders sensibly. -->
     <script>
       (function () {
-        var saved = localStorage.getItem('lmb-theme');
-        var theme = saved === 'light' ? 'light' : 'dark';
+        var theme = 'dark';
+        try {
+          var saved = localStorage.getItem('lmb-theme');
+          if (saved === 'light') theme = 'light';
+        } catch (e) { /* storage blocked; use default */ }
         document.documentElement.setAttribute('data-theme', theme);
       })();
     </script>

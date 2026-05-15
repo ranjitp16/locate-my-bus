@@ -151,8 +151,11 @@ export default function MapPage() {
   // ── Load agencies once ─────────────────────────────────────
   useEffect(() => {
     fetch('/api/agencies')
-      .then((r) => r.json())
-      .then((list: Agency[]) => setAgencies(list))
+      .then(async (r) => {
+        if (!r.ok) throw new Error(`/api/agencies → HTTP ${r.status}`);
+        return (await r.json()) as Agency[];
+      })
+      .then((list) => setAgencies(list))
       .catch((e) => console.error('agencies load failed', e));
   }, []);
 
@@ -181,8 +184,11 @@ export default function MapPage() {
     if (!selectedAgency) return;
     const filter = showAllRoutes ? 0 : 1;
     fetch(`/routes/${selectedAgency.id}/${filter}`)
-      .then((r) => r.json())
-      .then((list: Route[]) => {
+      .then(async (r) => {
+        if (!r.ok) throw new Error(`/routes → HTTP ${r.status}`);
+        return (await r.json()) as Route[];
+      })
+      .then((list) => {
         setRoutes(list);
         setSelectedRoute((current) => {
           // Keep the current selection if it's still in the new list.
@@ -212,7 +218,8 @@ export default function MapPage() {
     const poll = async () => {
       try {
         const r = await fetch(`/live/${selectedAgency.id}/${selectedRoute.id}`, { signal: ctrl.signal });
-        const data: Vehicle[] = await r.json();
+        if (!r.ok) throw new Error(`/live → HTTP ${r.status}`);
+        const data = (await r.json()) as Vehicle[];
         setBuses(data);
         setLastPollAt(Date.now());
       } catch (e) {
@@ -361,8 +368,11 @@ export default function MapPage() {
     let cancelled = false;
 
     fetch(`/api/shape/${selectedAgency.id}/${tripId}`)
-      .then((r) => r.json())
-      .then((data: { rows?: Array<{ pt_lat: string; pt_lon: string }> }) => {
+      .then(async (r) => {
+        if (!r.ok) throw new Error(`/api/shape → HTTP ${r.status}`);
+        return (await r.json()) as { rows?: Array<{ pt_lat: string; pt_lon: string }> };
+      })
+      .then((data) => {
         if (cancelled || drawnTripIdRef.current !== tripId) return;
         const points = (data.rows ?? []).map((row) => ({
           lat: Number(row.pt_lat),
@@ -382,8 +392,11 @@ export default function MapPage() {
       wheelchair_boarding: string | null;
     };
     fetch(`/api/stops/${selectedAgency.id}/${tripId}`)
-      .then((r) => r.json())
-      .then((rows: StopRow[]) => {
+      .then(async (r) => {
+        if (!r.ok) throw new Error(`/api/stops → HTTP ${r.status}`);
+        return (await r.json()) as StopRow[];
+      })
+      .then((rows) => {
         if (cancelled || drawnTripIdRef.current !== tripId) return;
         const stops: StopPoint[] = (rows ?? []).map((s) => ({
           id: String(s.stop_id),
@@ -458,8 +471,11 @@ export default function MapPage() {
       `&destLat=${stop.position.lat}` +
       `&destLng=${stop.position.lng}`;
     fetch(url, { headers: { 'X-Azure-Maps-Proxy': '1' } })
-      .then((r) => r.json())
-      .then((data: { points?: { lat: number; lng: number }[] }) => {
+      .then(async (r) => {
+        if (!r.ok) throw new Error(`/api/maps/walk-route → HTTP ${r.status}`);
+        return (await r.json()) as { points?: { lat: number; lng: number }[] };
+      })
+      .then((data) => {
         if (cancelled) return;
         const points = data.points ?? [];
         if (points.length) adapter.drawWalkRoute(points);

@@ -33,7 +33,8 @@ export default function AgenciesPage() {
   const reload = useCallback(async () => {
     try {
       const r = await fetch('/api/agencies');
-      const data: Agency[] = await r.json();
+      if (!r.ok) throw new Error(`/api/agencies → HTTP ${r.status}`);
+      const data = (await r.json()) as Agency[];
       setAgencies(data);
       setRefreshTick((n) => n + 1);
     } catch (e) {

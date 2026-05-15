@@ -59,7 +59,7 @@ AZURE_MAPS_KEY      # Azure Maps subscription key — proxied via /api/azure-map
 
 ### Devcontainer
 
-A VS Code devcontainer is defined in `.devcontainer/`. It spins up a C++ Ubuntu container (ports 3000 for Express and 5173 for Vite forwarded to host) and a Postgres 17 container (port 5434→5432). On `postCreate`, it installs system deps (`protobuf-compiler`, `libprotobuf-dev`, `libcurl4-openssl-dev`, `libpqxx-dev`), installs Node 22 via nvm, and runs `make get-protobuf-headers`. Environment variables come from `.development.env` (loaded into shell on container start).
+A VS Code devcontainer is defined in `.devcontainer/`. It spins up a C++ Ubuntu container (port 3000 forwarded for Express, which now serves both the API and the built SPA — Vite is build-only and there is no separate dev server) and a Postgres 17 container (port 5434→5432). On `postCreate`, it installs system deps (`protobuf-compiler`, `libprotobuf-dev`, `libcurl4-openssl-dev`, `libpqxx-dev`), installs Node 22 via nvm, and runs `make get-protobuf-headers`. Environment variables come from `.development.env` (loaded into shell on container start).
 
 The devcontainer Docker network is `locate-my-bus_devcontainer_default` — used by `make run-docker` to attach the daemon container to the same network as Postgres.
 

@@ -40,8 +40,12 @@ app.use(helmet({
         directives: {
             defaultSrc: ["'self'"],
             // All app JS is bundled and served same-origin from /dist/assets.
-            // 'unsafe-inline' stays so React's inline event handlers / future
-            // analytics snippets work; tighten with a nonce when adding any.
+            // 'unsafe-inline' stays because index.html ships two small
+            // inline scripts the page hard-depends on: the pre-paint
+            // theme bootstrap (sets data-theme before first render to
+            // avoid a light/dark flash) and the Google Analytics gtag
+            // initialiser. Both could be replaced with hashed/nonce'd
+            // scripts later — until then, keep the relaxation explicit.
             scriptSrc: [
                 "'self'",
                 "'unsafe-inline'",
@@ -244,14 +248,17 @@ app
 
 app.get('/api/dashboard/stats', authMiddleware, async (req, res) => {
     try {
+        // The LEFT JOIN can produce iteration rows with no executions
+        // (fe.id IS NULL). Use COUNT(fe.id) — not COUNT(*) — as the
+        // denominator so the percentages reflect executions, not rows.
         const { rows } = await pool.query(`
             SELECT
-                COUNT(DISTINCT pi.id)::int                                                                      AS total_iterations,
-                COUNT(fe.id)::int                                                                               AS total_executions,
-                ROUND(AVG(fe.execution_time_us) / 1000)::int                                                   AS avg_execution_ms,
-                ROUND(100.0 * SUM(CASE WHEN fe.is_cache_hit  THEN 1 ELSE 0 END) / NULLIF(COUNT(*), 0), 1)     AS cache_hit_pct,
-                ROUND(100.0 * SUM(CASE WHEN fe.status = 'error' THEN 1 ELSE 0 END) / NULLIF(COUNT(*), 0), 1)  AS error_pct,
-                MIN(pi.started_at)                                                                              AS oldest_iteration_at
+                COUNT(DISTINCT pi.id)::int                                                                            AS total_iterations,
+                COUNT(fe.id)::int                                                                                     AS total_executions,
+                ROUND(AVG(fe.execution_time_us) / 1000)::int                                                          AS avg_execution_ms,
+                ROUND(100.0 * SUM(CASE WHEN fe.is_cache_hit  THEN 1 ELSE 0 END) / NULLIF(COUNT(fe.id), 0), 1)        AS cache_hit_pct,
+                ROUND(100.0 * SUM(CASE WHEN fe.status = 'error' THEN 1 ELSE 0 END) / NULLIF(COUNT(fe.id), 0), 1)     AS error_pct,
+                MIN(pi.started_at)                                                                                    AS oldest_iteration_at
             FROM public.poll_iteration pi
             LEFT JOIN public.feed_execution fe ON fe.poll_iteration_id = pi.id
         `);
@@ -341,30 +348,47 @@ app.get('/api/landing', async (req, res) => {
                      JOIN public.poll_iteration pi ON pi.id = fe.poll_iteration_id
                      WHERE pi.started_at >= NOW() - INTERVAL '24 hours')             AS avg_latency_ms
             `),
+            // Aggregate once per source table (routes, live vehicles,
+            // last-24h feed_execution) and LEFT JOIN per agency, instead
+            // of issuing four correlated subqueries per agency row. The
+            // shape of the response is unchanged.
             pool.query(`
+                WITH
+                  routes_per_agency AS (
+                    SELECT agency_id, COUNT(*)::int AS routes
+                    FROM public.route
+                    GROUP BY agency_id
+                  ),
+                  buses_per_agency AS (
+                    SELECT agency_id, COUNT(*)::int AS buses_live
+                    FROM public.live_vehicle_position
+                    GROUP BY agency_id
+                  ),
+                  exec_24h AS (
+                    SELECT
+                        fe.agency_id,
+                        ROUND(
+                            100.0 * SUM(CASE WHEN fe.status = 'error' THEN 1 ELSE 0 END)
+                                  / NULLIF(COUNT(*), 0),
+                            1
+                        ) AS error_rate_pct,
+                        ROUND(AVG(fe.execution_time_us) / 1000)::int AS avg_latency_ms
+                    FROM public.feed_execution fe
+                    JOIN public.poll_iteration pi ON pi.id = fe.poll_iteration_id
+                    WHERE pi.started_at >= NOW() - INTERVAL '24 hours'
+                    GROUP BY fe.agency_id
+                  )
                 SELECT
-                    a.id   AS agency_id,
-                    a.name AS agency_name,
-                    (SELECT COUNT(*) FROM public.route r WHERE r.agency_id = a.id)::int                  AS routes,
-                    (SELECT COUNT(*) FROM public.live_vehicle_position v WHERE v.agency_id = a.id)::int  AS buses_live,
-                    (
-                      SELECT ROUND(
-                        100.0 * SUM(CASE WHEN fe.status = 'error' THEN 1 ELSE 0 END)
-                              / NULLIF(COUNT(*), 0), 1
-                      )
-                      FROM public.feed_execution fe
-                      JOIN public.poll_iteration pi ON pi.id = fe.poll_iteration_id
-                      WHERE fe.agency_id = a.id
-                        AND pi.started_at >= NOW() - INTERVAL '24 hours'
-                    ) AS error_rate_pct,
-                    (
-                      SELECT ROUND(AVG(fe.execution_time_us) / 1000)::int
-                      FROM public.feed_execution fe
-                      JOIN public.poll_iteration pi ON pi.id = fe.poll_iteration_id
-                      WHERE fe.agency_id = a.id
-                        AND pi.started_at >= NOW() - INTERVAL '24 hours'
-                    ) AS avg_latency_ms
+                    a.id                          AS agency_id,
+                    a.name                        AS agency_name,
+                    COALESCE(rpa.routes, 0)       AS routes,
+                    COALESCE(bpa.buses_live, 0)   AS buses_live,
+                    ex.error_rate_pct             AS error_rate_pct,
+                    ex.avg_latency_ms             AS avg_latency_ms
                 FROM public.agency a
+                LEFT JOIN routes_per_agency rpa ON rpa.agency_id = a.id
+                LEFT JOIN buses_per_agency  bpa ON bpa.agency_id = a.id
+                LEFT JOIN exec_24h          ex  ON ex.agency_id  = a.id
                 ORDER BY a.name ASC
             `),
         ]);
