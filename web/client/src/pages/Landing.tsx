@@ -10,9 +10,10 @@ import { MiniMap } from '../components/MiniMap';
 import { DesktopShell } from '../components/DesktopShell';
 import { MobileNavSheet } from '../components/MobileNavSheet';
 import { ComingSoonModal } from '../components/ComingSoonModal';
-
-const PLAN_TRIP_COMING_SOON =
-  "The trip planner is still in the works. Hang tight — it'll be live soon. In the meantime, you can explore live buses on the map.";
+import {
+  PLAN_TRIP_COMING_SOON_MESSAGE,
+  PLAN_TRIP_COMING_SOON_TITLE,
+} from '../lib/copy';
 
 function fmtInt(n: number): string {
   return n.toLocaleString('en-US');
@@ -36,8 +37,8 @@ export default function Landing() {
       <ComingSoonModal
         open={planComingSoon}
         onClose={() => setPlanComingSoon(false)}
-        title="Trip planner — coming soon"
-        message={PLAN_TRIP_COMING_SOON}
+        title={PLAN_TRIP_COMING_SOON_TITLE}
+        message={PLAN_TRIP_COMING_SOON_MESSAGE}
       />
     </>
   );
@@ -129,6 +130,7 @@ function MobileLanding({
             Open the map
           </Link>
           <button
+            type="button"
             onClick={onPlanTrip}
             style={{
               padding: '14px 16px',
@@ -499,6 +501,7 @@ function DesktopLanding({
               <IconArrowRight size={16} />
             </Link>
             <button
+              type="button"
               onClick={onPlanTrip}
               style={{
                 padding: '16px 22px',

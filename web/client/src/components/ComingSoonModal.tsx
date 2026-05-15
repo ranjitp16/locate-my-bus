@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { IconClose } from './Icons';
 
 export function ComingSoonModal({
@@ -12,13 +12,22 @@ export function ComingSoonModal({
   title?: string;
   message: string;
 }) {
+  const primaryRef = useRef<HTMLButtonElement | null>(null);
+  const lastFocusedRef = useRef<HTMLElement | null>(null);
+
   useEffect(() => {
     if (!open) return;
+    lastFocusedRef.current = document.activeElement as HTMLElement | null;
+    const id = window.setTimeout(() => primaryRef.current?.focus(), 0);
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
     };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    return () => {
+      window.clearTimeout(id);
+      window.removeEventListener('keydown', onKey);
+      lastFocusedRef.current?.focus?.();
+    };
   }, [open, onClose]);
 
   if (!open) return null;
@@ -56,6 +65,7 @@ export function ComingSoonModal({
         }}
       >
         <button
+          type="button"
           onClick={onClose}
           aria-label="Close"
           style={{
@@ -116,6 +126,8 @@ export function ComingSoonModal({
         </p>
 
         <button
+          ref={primaryRef}
+          type="button"
           onClick={onClose}
           style={{
             width: '100%',

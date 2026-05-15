@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { IconClose } from './Icons';
 
 const BMC_YELLOW = '#FFDD00';
@@ -35,13 +35,23 @@ export function BmcModal({
   onClose: () => void;
   bmcUrl: string;
 }) {
+  const supportRef = useRef<HTMLAnchorElement | null>(null);
+  const lastFocusedRef = useRef<HTMLElement | null>(null);
+
   useEffect(() => {
     if (!open) return;
+    lastFocusedRef.current = document.activeElement as HTMLElement | null;
+    // Defer to next tick so the dialog node is mounted before we focus.
+    const id = window.setTimeout(() => supportRef.current?.focus(), 0);
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
     };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    return () => {
+      window.clearTimeout(id);
+      window.removeEventListener('keydown', onKey);
+      lastFocusedRef.current?.focus?.();
+    };
   }, [open, onClose]);
 
   if (!open) return null;
@@ -79,6 +89,7 @@ export function BmcModal({
         }}
       >
         <button
+          type="button"
           onClick={onClose}
           aria-label="Close"
           style={{
@@ -132,6 +143,7 @@ export function BmcModal({
 
         <div style={{ display: 'flex', gap: 10 }}>
           <button
+            type="button"
             onClick={onClose}
             style={{
               flex: 1,
@@ -149,6 +161,7 @@ export function BmcModal({
             Maybe later
           </button>
           <a
+            ref={supportRef}
             href={bmcUrl}
             target="_blank"
             rel="noopener noreferrer"
