@@ -30,6 +30,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # The generated GTFS-realtime protobuf files (`transit_realtime.proto`,
+      # `.pb.h`, `.pb.cc`) are gitignored, so we regenerate them on the runner
+      # before the Docker build picks up `daemon/` via COPY. Mirrors the local
+      # `make get-protobuf-headers` target.
+      - name: Generate GTFS-realtime protobuf files
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler
+          curl -fsSL "https://gtfs.org/documentation/realtime/gtfs-realtime.proto" \
+            -o ./daemon/assets/transit_realtime.proto
+          protoc --cpp_out=. ./daemon/assets/transit_realtime.proto
+
       # QEMU + Buildx give us cross-arch builds (linux/amd64 + linux/arm64)
       # to match the local `make docker` target's --platform flag.
       - name: Set up QEMU

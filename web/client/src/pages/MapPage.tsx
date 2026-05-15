@@ -9,7 +9,7 @@ import {
   IconRefresh, IconRoute, IconSearch, IconClose, IconWalk, IconClock,
 } from '../components/Icons';
 import type { Agency, Route, Vehicle } from '../lib/azureMaps';
-import type { MapAdapter, StopPoint } from '../lib/maps/adapter';
+import type { LatLng, MapAdapter, StopPoint } from '../lib/maps/adapter';
 import { AzureMapAdapter } from '../lib/maps/azureAdapter';
 
 const POLL_INTERVAL_MS = 15_000;
@@ -24,6 +24,81 @@ function haversineMeters(a: { lat: number; lng: number }, b: { lat: number; lng:
     Math.sin(dLat / 2) ** 2 +
     Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
   return R * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+}
+
+// Polyline pre-baked for projection math. `xy` is an equirectangular
+// projection of each `points[i]` into local metres around a single
+// origin so segment-distance comparisons in `projectOntoPolyline` can
+// happen in cheap planar squared-distance (no per-segment trig).
+type Polyline = {
+  points: LatLng[];
+  cum: number[];
+  xy: { x: number; y: number }[];
+  origin: LatLng;
+  cosOriginLat: number;
+};
+
+const M_PER_DEG = 111_320;
+
+function buildPolyline(points: LatLng[]): Polyline {
+  const origin = points[0];
+  const cosOriginLat = Math.cos((origin.lat * Math.PI) / 180);
+  const xy = points.map((p) => ({
+    x: (p.lng - origin.lng) * M_PER_DEG * cosOriginLat,
+    y: (p.lat - origin.lat) * M_PER_DEG,
+  }));
+  const cum = new Array<number>(points.length);
+  cum[0] = 0;
+  for (let i = 1; i < points.length; i++) {
+    cum[i] = cum[i - 1] + haversineMeters(points[i - 1], points[i]);
+  }
+  return { points, cum, xy, origin, cosOriginLat };
+}
+
+function projectOntoPolyline(q: LatLng, poly: Polyline): number {
+  const qx = (q.lng - poly.origin.lng) * M_PER_DEG * poly.cosOriginLat;
+  const qy = (q.lat - poly.origin.lat) * M_PER_DEG;
+  const { xy, cum } = poly;
+  let bestD2 = Infinity;
+  let bestAlong = 0;
+  for (let i = 0; i < xy.length - 1; i++) {
+    const ax = xy[i];
+    const bx = xy[i + 1];
+    const dx = bx.x - ax.x;
+    const dy = bx.y - ax.y;
+    const len2 = dx * dx + dy * dy;
+    if (len2 === 0) continue;
+    let t = ((qx - ax.x) * dx + (qy - ax.y) * dy) / len2;
+    t = Math.max(0, Math.min(1, t));
+    const ex = qx - (ax.x + dx * t);
+    const ey = qy - (ax.y + dy * t);
+    const d2 = ex * ex + ey * ey;
+    if (d2 < bestD2) {
+      bestD2 = d2;
+      bestAlong = cum[i] + (cum[i + 1] - cum[i]) * t;
+    }
+  }
+  return bestAlong;
+}
+
+function pointAtAlong(along: number, poly: Polyline): LatLng {
+  const { points, cum } = poly;
+  const last = points.length - 1;
+  if (along <= 0) return points[0];
+  if (along >= cum[last]) return points[last];
+  let lo = 0;
+  let hi = last;
+  while (lo < hi - 1) {
+    const mid = (lo + hi) >> 1;
+    if (cum[mid] <= along) lo = mid;
+    else hi = mid;
+  }
+  const segLen = cum[lo + 1] - cum[lo];
+  const t = segLen > 0 ? (along - cum[lo]) / segLen : 0;
+  return {
+    lat: points[lo].lat + (points[lo + 1].lat - points[lo].lat) * t,
+    lng: points[lo].lng + (points[lo + 1].lng - points[lo].lng) * t,
+  };
 }
 
 // Short, scale-appropriate distance label: "240 m" under 1 km, "1.2 km" above.
@@ -284,10 +359,16 @@ export default function MapPage() {
     }
   }, [buses, pinnedVid, mapReady, selectedRoute, setPinnedVid]);
 
+  // Trip shape used by the pinned-bus animator. Kept in a ref (not
+  // state) so the shape arriving mid-poll doesn't itself retrigger the
+  // animation effect — the next poll will read it.
+  const shapeRef = useRef<{ tripId: string; poly: Polyline } | null>(null);
+
   // ── Smooth-animate the pinned bus over 2s on each poll ────
   // Only animates when the *same* bus stays pinned and its position
-  // changed (i.e., a poll moved it). Pinning a different bus snaps to
-  // the new bus's current position — no cross-bus interpolation.
+  // changed. When the trip shape is loaded, the animation walks along
+  // the polyline so a right-angled turn travels the L-shape (not the
+  // hypotenuse); otherwise falls back to linear interp.
   const prevPinnedVidRef = useRef<string | null>(null);
   const prevPinnedPosRef = useRef<{ lat: number; lng: number } | null>(null);
   useEffect(() => {
@@ -312,13 +393,32 @@ export default function MapPage() {
     }
     if (start.lat === target.lat && start.lng === target.lng) return;
 
+    const shape = shapeRef.current;
+    const plan =
+      shape && shape.tripId === bus.trip_id && shape.poly.points.length > 1
+        ? {
+            startAlong: projectOntoPolyline(start, shape.poly),
+            targetAlong: projectOntoPolyline(target, shape.poly),
+            poly: shape.poly,
+          }
+        : null;
+
     const duration = 2000;
     const startTs = performance.now();
     let raf = 0;
     const tick = (now: number) => {
       const t = Math.min(1, (now - startTs) / duration);
-      const lat = start.lat + (target.lat - start.lat) * t;
-      const lng = start.lng + (target.lng - start.lng) * t;
+      let lat: number;
+      let lng: number;
+      if (plan) {
+        const along = plan.startAlong + (plan.targetAlong - plan.startAlong) * t;
+        const on = pointAtAlong(along, plan.poly);
+        lat = on.lat;
+        lng = on.lng;
+      } else {
+        lat = start.lat + (target.lat - start.lat) * t;
+        lng = start.lng + (target.lng - start.lng) * t;
+      }
       adapter.updateMarker(pinnedVid, { position: { lat, lng } });
       if (t < 1) raf = requestAnimationFrame(tick);
     };
@@ -336,6 +436,7 @@ export default function MapPage() {
     adapter.clearWalkRoute();
     setLoadedStops([]);
     setPinnedVid(null);
+    shapeRef.current = null;
   }, [selectedRoute, setPinnedVid]);
 
   // ── Draw route polyline + stops for the *pinned* vehicle's trip ──
@@ -356,6 +457,7 @@ export default function MapPage() {
         adapter.clearWalkRoute();
         setLoadedStops([]);
         drawnTripIdRef.current = null;
+        shapeRef.current = null;
       }
       return;
     }
@@ -378,7 +480,10 @@ export default function MapPage() {
           lat: Number(row.pt_lat),
           lng: Number(row.pt_lon),
         }));
-        if (points.length) adapter.drawRoute(points);
+        if (points.length) {
+          adapter.drawRoute(points);
+          shapeRef.current = { tripId, poly: buildPolyline(points) };
+        }
       })
       .catch((e) => console.error('shape load failed', e));
 

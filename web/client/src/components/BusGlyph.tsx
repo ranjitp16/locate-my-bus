@@ -104,24 +104,22 @@ export function BusMark({ size = 38, route, pinned = false, live = false, dir = 
         <circle cx="44" cy="32" r="5" fill="#10131A" />
         <circle cx="44" cy="32" r="2.2" fill="var(--signal-ink)" opacity="0.7" />
         <circle cx="44" cy="32" r="1" fill="#10131A" />
+
+        {route != null && (
+          <text
+            x="30"
+            y="25"
+            textAnchor="middle"
+            fontFamily="'JetBrains Mono', monospace"
+            fontSize="9"
+            fontWeight="800"
+            fill="var(--signal-ink)"
+            letterSpacing="0.5"
+          >
+            {route}
+          </text>
+        )}
       </g>
-
-      {/* Route number stays un-rotated so it always reads horizontally on top of the bus. */}
-      {route != null && (
-        <text
-          x="30"
-          y="25"
-          textAnchor="middle"
-          fontFamily="'JetBrains Mono', monospace"
-          fontSize="9"
-          fontWeight="800"
-          fill="var(--signal-ink)"
-          letterSpacing="0.5"
-        >
-          {route}
-        </text>
-      )}
-
     </svg>
   );
 }
