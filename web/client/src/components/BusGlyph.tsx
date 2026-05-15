@@ -50,6 +50,15 @@ export function BusMark({ size = 38, route, pinned = false, live = false, dir = 
         />
       )}
 
+      {pinned && !live && (
+        <circle
+          cx="30"
+          cy="22"
+          r="32"
+          fill="color-mix(in oklab, var(--signal) 32%, transparent)"
+        />
+      )}
+
       <g transform={bodyTransform}>
         <ellipse cx="30" cy="38" rx="22" ry="2" fill="rgba(0,0,0,0.35)" />
 
@@ -100,9 +109,6 @@ export function BusMark({ size = 38, route, pinned = false, live = false, dir = 
         </text>
       )}
 
-      {pinned && (
-        <circle cx="50" cy="6" r="5" fill="var(--signal-ink)" stroke="var(--signal)" strokeWidth="2" />
-      )}
     </svg>
   );
 }

@@ -15,10 +15,32 @@ const POLL_INTERVAL_MS = 15_000;
 
 type AtlasNs = typeof import('azure-maps-control');
 
+const MAP_STYLE_KEY = 'lmb-map-style';
+const MAP_STYLES: { value: string; label: string }[] = [
+  { value: 'road', label: 'Road' },
+  { value: 'grayscale_dark', label: 'Grayscale' },
+  { value: 'night', label: 'Night' },
+  { value: 'satellite', label: 'Satellite' },
+];
+
 export default function MapPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { theme } = useTheme();
+  const { theme, setTheme } = useTheme();
+  const [mapStyle, setMapStyleState] = useState<string>(() => {
+    if (typeof window === 'undefined') return 'road';
+    const stored = window.localStorage.getItem(MAP_STYLE_KEY);
+    if (stored) return stored;
+    // No stored choice yet: pair with the app theme — Road for light,
+    // Night for dark. Once the user picks a style in settings the
+    // localStorage value sticks regardless of theme.
+    return theme === 'dark' ? 'night' : 'road';
+  });
+  const setMapStyle = useCallback((next: string) => {
+    setMapStyleState(next);
+    if (typeof window !== 'undefined') window.localStorage.setItem(MAP_STYLE_KEY, next);
+  }, []);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapInstanceRef = useRef<InstanceType<AtlasNs['Map']> | null>(null);
@@ -53,7 +75,7 @@ export default function MapPage() {
       const map = new atlas.Map(mapContainerRef.current, {
         center: [-63.5752, 44.6488], // Halifax
         zoom: 12,
-        style: theme === 'dark' ? 'grayscale_dark' : 'road',
+        style: mapStyle,
         language: 'en-US',
         authOptions: proxyAuthOptions,
         transformRequest: proxyTransformRequest,
@@ -73,15 +95,14 @@ export default function MapPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ── Update map style on theme change ───────────────────────
+  // ── Update map style when user picks a different one ─────
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !mapReady) return;
-    const next = theme === 'dark' ? 'grayscale_dark' : 'road';
     const current = (map.getStyle() as { style?: string }).style;
-    if (current === next) return;
-    map.setStyle({ style: next });
-  }, [theme, mapReady]);
+    if (current === mapStyle) return;
+    map.setStyle({ style: mapStyle });
+  }, [mapStyle, mapReady]);
 
   // ── Load agencies once ─────────────────────────────────────
   useEffect(() => {
@@ -153,7 +174,6 @@ export default function MapPage() {
         <BusMark
           size={42}
           route={routeId}
-          live
           pinned={pinned}
           bearing={bearing}
           idSeed={`v${bus.vehicle_id}`}
@@ -315,13 +335,15 @@ export default function MapPage() {
           <IconChevron size={14} style={{ color: 'var(--text-muted)' }} />
         </div>
         <button
+          onClick={() => setSettingsOpen((o) => !o)}
+          aria-label="Settings"
           style={{
             width: 40,
             height: 40,
             borderRadius: 12,
-            background: 'var(--surface)',
+            background: settingsOpen ? 'var(--bg-elevated)' : 'var(--surface)',
             color: 'var(--text)',
-            border: '1px solid var(--border)',
+            border: '1px solid ' + (settingsOpen ? 'var(--border-hi)' : 'var(--border)'),
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -333,6 +355,23 @@ export default function MapPage() {
           <IconGear size={18} />
         </button>
       </div>
+
+      {settingsOpen && (
+        <>
+          {/* Backdrop captures outside clicks. */}
+          <div
+            onClick={() => setSettingsOpen(false)}
+            style={{ position: 'fixed', inset: 0, zIndex: 35 }}
+          />
+          <SettingsPopover
+            mapStyle={mapStyle}
+            onMapStyleChange={setMapStyle}
+            theme={theme}
+            onThemeChange={setTheme}
+            onClose={() => setSettingsOpen(false)}
+          />
+        </>
+      )}
 
       {/* Right side FAB cluster */}
       <div
@@ -454,6 +493,140 @@ export default function MapPage() {
 
 // Re-renders once a second to update its own text node, without forcing the
 // whole MapPage tree to re-render every tick.
+// Popover triggered by the top-bar gear. Carries two independent controls:
+// the Azure Maps style and the app theme. Map style is persisted in
+// localStorage by the parent so a reload keeps the user's choice.
+function SettingsPopover({
+  mapStyle,
+  onMapStyleChange,
+  theme,
+  onThemeChange,
+  onClose,
+}: {
+  mapStyle: string;
+  onMapStyleChange: (s: string) => void;
+  theme: 'dark' | 'light';
+  onThemeChange: (t: 'dark' | 'light') => void;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        top: 64,
+        right: 12,
+        zIndex: 50,
+        width: 260,
+        background: 'var(--bg-elevated)',
+        border: '1px solid var(--border-hi)',
+        borderRadius: 14,
+        padding: 14,
+        boxShadow: '0 12px 28px rgba(0,0,0,0.35)',
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          marginBottom: 12,
+        }}
+      >
+        <span
+          className="mono"
+          style={{
+            fontSize: 10,
+            fontWeight: 700,
+            color: 'var(--text-muted)',
+            letterSpacing: 1.2,
+            textTransform: 'uppercase',
+          }}
+        >
+          Settings
+        </span>
+        <button
+          onClick={onClose}
+          aria-label="Close settings"
+          style={{
+            background: 'transparent',
+            border: 'none',
+            color: 'var(--text-muted)',
+            padding: 4,
+            display: 'flex',
+            cursor: 'pointer',
+          }}
+        >
+          <IconClose size={14} />
+        </button>
+      </div>
+
+      <SettingsSection label="Map style">
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+          {MAP_STYLES.map((s) => (
+            <SettingsOption
+              key={s.value}
+              label={s.label}
+              active={mapStyle === s.value}
+              onClick={() => onMapStyleChange(s.value)}
+            />
+          ))}
+        </div>
+      </SettingsSection>
+
+      <SettingsSection label="App theme">
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+          <SettingsOption label="Dark" active={theme === 'dark'} onClick={() => onThemeChange('dark')} />
+          <SettingsOption label="Light" active={theme === 'light'} onClick={() => onThemeChange('light')} />
+        </div>
+      </SettingsSection>
+    </div>
+  );
+}
+
+function SettingsSection({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <div
+        className="mono"
+        style={{
+          fontSize: 9,
+          fontWeight: 700,
+          color: 'var(--text-muted)',
+          letterSpacing: 0.8,
+          textTransform: 'uppercase',
+          marginBottom: 6,
+        }}
+      >
+        {label}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function SettingsOption({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        padding: '8px 10px',
+        borderRadius: 8,
+        background: active ? 'var(--signal)' : 'var(--surface)',
+        color: active ? 'var(--signal-ink)' : 'var(--text-soft)',
+        border: '1px solid ' + (active ? 'var(--signal)' : 'var(--border)'),
+        fontFamily: 'var(--font-mono)',
+        fontSize: 11,
+        fontWeight: 700,
+        letterSpacing: 0.4,
+        textTransform: 'uppercase',
+        cursor: 'pointer',
+      }}
+    >
+      {label}
+    </button>
+  );
+}
+
 function PollTicker({ from, paused, mode }: { from: number; paused: boolean; mode: 'since' | 'next' }) {
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
