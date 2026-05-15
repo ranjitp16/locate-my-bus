@@ -10,6 +10,7 @@ import { MiniMap } from '../components/MiniMap';
 import { DesktopShell } from '../components/DesktopShell';
 import { MobileNavSheet } from '../components/MobileNavSheet';
 import { ComingSoonModal } from '../components/ComingSoonModal';
+import { PreferencesBanner } from '../components/PreferencesBanner';
 import {
   PLAN_TRIP_COMING_SOON_MESSAGE,
   PLAN_TRIP_COMING_SOON_TITLE,
@@ -40,6 +41,7 @@ export default function Landing() {
         title={PLAN_TRIP_COMING_SOON_TITLE}
         message={PLAN_TRIP_COMING_SOON_MESSAGE}
       />
+      <PreferencesBanner />
     </>
   );
 }
@@ -206,9 +208,15 @@ function MobileLanding({
                 Ranjit Pandey
               </a>
             </span>
-            <Link to="/dash/agencies" style={{ color: 'var(--text-soft)', textDecoration: 'none' }}>
-              Manage agencies →
-            </Link>
+            <span style={{ display: 'inline-flex', gap: 10, alignItems: 'center' }}>
+              <Link to="/about" style={{ color: 'var(--text-soft)', textDecoration: 'none' }}>
+                About
+              </Link>
+              <span style={{ color: 'var(--text-faint)' }}>·</span>
+              <Link to="/dash/agencies" style={{ color: 'var(--text-soft)', textDecoration: 'none' }}>
+                Manage agencies →
+              </Link>
+            </span>
           </div>
         </div>
       </div>
@@ -610,9 +618,15 @@ function DesktopLanding({
               Ranjit Pandey
             </a>
           </span>
-          <Link to="/dash/agencies" style={{ color: 'var(--text-soft)', textDecoration: 'none' }}>
-            Manage agencies →
-          </Link>
+          <span style={{ display: 'inline-flex', gap: 12, alignItems: 'center' }}>
+            <Link to="/about" style={{ color: 'var(--text-soft)', textDecoration: 'none' }}>
+              About
+            </Link>
+            <span style={{ color: 'var(--text-faint)' }}>·</span>
+            <Link to="/dash/agencies" style={{ color: 'var(--text-soft)', textDecoration: 'none' }}>
+              Manage agencies →
+            </Link>
+          </span>
         </div>
       </div>
     </DesktopShell>

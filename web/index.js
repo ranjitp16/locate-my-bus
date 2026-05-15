@@ -70,6 +70,7 @@ app.use(helmet({
                 "https://atlas.microsoft.com",
                 "https://www.google-analytics.com",
                 "https://*.google-analytics.com",
+                "https://cdn.buymeacoffee.com",
             ],
             // Azure Maps tiles/styles normally go through /api/azure-maps,
             // but atlas.microsoft.com stays whitelisted as a safety net for
