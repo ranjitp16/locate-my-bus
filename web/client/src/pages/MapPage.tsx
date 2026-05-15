@@ -237,13 +237,84 @@ export default function MapPage() {
     }
   }, [buses, pinnedVid, mapReady, selectedRoute, setPinnedVid]);
 
-  // ── Clean markers when route changes ───────────────────────
+  // ── Clean markers + route + stops when route changes ─────
   useEffect(() => {
     const adapter = adapterRef.current;
     if (!adapter) return;
     for (const id of adapter.listMarkerIds()) adapter.removeMarker(id);
+    adapter.clearRoute();
+    adapter.clearStops();
     setPinnedVid(null);
   }, [selectedRoute, setPinnedVid]);
+
+  // ── Draw route polyline + stops for the *pinned* vehicle's trip ──
+  // Unpinned (or no pin): nothing extra is drawn. When a vehicle is
+  // pinned, we use its current trip_id to fetch the shape and the
+  // ordered list of stops on that trip, then draw them through the
+  // adapter. Re-fetches when the pinned vehicle's trip_id changes
+  // (e.g., it finished one run and started another).
+  const drawnTripIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    const adapter = adapterRef.current;
+    if (!adapter || !mapReady || !selectedAgency) return;
+
+    if (!pinnedVid) {
+      if (drawnTripIdRef.current != null) {
+        adapter.clearRoute();
+        adapter.clearStops();
+        drawnTripIdRef.current = null;
+      }
+      return;
+    }
+
+    const pinnedBus = buses.find((b) => b.vehicle_id === pinnedVid);
+    const tripId = pinnedBus?.trip_id;
+    if (!tripId || drawnTripIdRef.current === tripId) return;
+
+    drawnTripIdRef.current = tripId;
+    let cancelled = false;
+
+    fetch(`/api/shape/${selectedAgency.id}/${tripId}`)
+      .then((r) => r.json())
+      .then((data: { rows?: Array<{ pt_lat: string; pt_lon: string }> }) => {
+        if (cancelled || drawnTripIdRef.current !== tripId) return;
+        const points = (data.rows ?? []).map((row) => ({
+          lat: Number(row.pt_lat),
+          lng: Number(row.pt_lon),
+        }));
+        if (points.length) adapter.drawRoute(points);
+      })
+      .catch((e) => console.error('shape load failed', e));
+
+    type StopRow = {
+      stop_id: string;
+      name: string | null;
+      code: string | null;
+      lat: string;
+      lon: string;
+      arrival_time: string | null;
+      wheelchair_boarding: string | null;
+    };
+    fetch(`/api/stops/${selectedAgency.id}/${tripId}`)
+      .then((r) => r.json())
+      .then((rows: StopRow[]) => {
+        if (cancelled || drawnTripIdRef.current !== tripId) return;
+        const stops = (rows ?? []).map((s) => ({
+          id: String(s.stop_id),
+          position: { lat: Number(s.lat), lng: Number(s.lon) },
+          name: s.name ?? undefined,
+          code: s.code ?? undefined,
+          arrivalTime: s.arrival_time ?? undefined,
+          accessible: s.wheelchair_boarding === '1',
+        }));
+        adapter.updateStops(stops);
+      })
+      .catch((e) => console.error('stops load failed', e));
+
+    return () => {
+      cancelled = true;
+    };
+  }, [pinnedVid, buses, selectedAgency, mapReady]);
 
   // ── Recenter to pinned bus ─────────────────────────────────
   useEffect(() => {

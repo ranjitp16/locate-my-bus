@@ -40,6 +40,17 @@ export type CameraMove = {
   animate?: boolean;
 };
 
+export type StopPoint = {
+  id: string;
+  position: LatLng;
+  name?: string;
+  code?: string;
+  /** GTFS arrival time, e.g. "07:45:00". May exceed 24h for post-midnight trips. */
+  arrivalTime?: string;
+  /** True iff the stop is wheelchair accessible (GTFS wheelchair_boarding = '1'). */
+  accessible?: boolean;
+};
+
 export interface MapAdapter {
   /** Resolves once the underlying map is ready to accept markers/style changes. */
   init(container: HTMLElement, opts: MapAdapterInit): Promise<void>;
@@ -56,4 +67,25 @@ export interface MapAdapter {
   removeMarker(id: string): void;
   hasMarker(id: string): boolean;
   listMarkerIds(): string[];
+
+  /**
+   * Draw a polyline along the given lat/lng path with a translucent base
+   * stroke and an animated dashed overlay indicating direction of travel.
+   * Replaces any previous route. Implementations should keep the line
+   * aligned with the underlying map projection as the user pans/zooms.
+   */
+  drawRoute(points: LatLng[]): void;
+
+  /** Remove the current route polyline (if any). No-op if none is drawn. */
+  clearRoute(): void;
+
+  /**
+   * Replace the current set of stop markers with the given list. Each
+   * stop renders as a small dot with a click-to-open popup showing the
+   * provided metadata (name, scheduled arrival, accessibility flag…).
+   */
+  updateStops(stops: StopPoint[]): void;
+
+  /** Remove all stop markers. No-op if none are drawn. */
+  clearStops(): void;
 }

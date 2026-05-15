@@ -135,3 +135,49 @@ button { font-family: inherit; cursor: pointer; }
   from { opacity: 0; transform: translateY(8px); }
   to   { opacity: 1; transform: translateY(0); }
 }
+
+/* ── Azure Maps popup theme override ──────────────────────────
+   The SDK paints popups (.popup-content-container) with a fixed
+   white card. On dark mode the themed text inside vanishes against
+   that white. Override the container + arrow + close button to use
+   our tokens so popups follow the active theme. Dual selectors
+   cover both v2 (.atlas-popup-*) and v3 (.popup-*) class names. */
+.popup-content-container,
+.atlas-popup-content-container {
+  background-color: var(--bg-elevated) !important;
+  border: 1px solid var(--border) !important;
+  color: var(--text) !important;
+  border-radius: 10px !important;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3) !important;
+}
+.popup-close,
+.popup-close-button,
+.atlas-popup-close-button {
+  color: var(--text-muted) !important;
+  background: transparent !important;
+  width: 28px !important;
+  height: 28px !important;
+  top: 6px !important;
+  right: 6px !important;
+  padding: 0 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  border-radius: 8px !important;
+  font-size: 20px !important;
+  line-height: 1 !important;
+}
+.popup-close:hover,
+.popup-close-button:hover,
+.atlas-popup-close-button:hover {
+  color: var(--text) !important;
+  background: var(--surface) !important;
+}
+.popup-container,
+.atlas-popup-container {
+  border-color: var(--bg-elevated) !important;
+}
+.popup-arrow,
+.atlas-popup-tip {
+  border-top-color: var(--bg-elevated) !important;
+}
