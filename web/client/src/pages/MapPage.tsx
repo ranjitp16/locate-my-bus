@@ -11,12 +11,27 @@ import {
 import type { Agency, Route, Vehicle } from '../lib/azureMaps';
 import type { LatLng, MapAdapter, StopPoint } from '../lib/maps/adapter';
 import { AzureMapAdapter } from '../lib/maps/azureAdapter';
+import { BmcModal } from '../components/BmcModal';
+import { ComingSoonModal } from '../components/ComingSoonModal';
+import {
+  PLAN_TRIP_COMING_SOON_MESSAGE,
+  PLAN_TRIP_COMING_SOON_TITLE,
+} from '../lib/copy';
 
 const POLL_INTERVAL_MS = 15_000;
 // Don't draw the user→nearest-stop walking overlay when the stop is
 // farther than this — the path becomes useless and burns an Azure
 // Maps routing call for no gain.
 const MAX_WALK_ROUTE_METERS = 5000;
+
+// Buy Me a Coffee prompt — shown on the 2nd map-page mount onwards,
+// and at most once per 24 h after the prompt was last closed (whether
+// the user dismissed it or clicked through to the Support link).
+const BMC_VISIT_COUNT_KEY = 'lmb-map-visits';
+const BMC_PROMPT_SHOWN_AT_KEY = 'lmb-bmc-prompt-shown-at';
+const BMC_MIN_VISITS = 2;
+const BMC_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+const BMC_URL = 'https://buymeacoffee.com/ranjitp16';
 
 // Haversine great-circle distance between two lat/lng pairs, in metres.
 function haversineMeters(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
@@ -124,7 +139,7 @@ const MAP_STYLES: { value: string; label: string }[] = [
 
 export default function MapPage() {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { theme, setTheme } = useTheme();
   const [mapStyle, setMapStyleState] = useState<string>(() => {
     if (typeof window === 'undefined') return 'road';
@@ -163,9 +178,19 @@ export default function MapPage() {
   const [buses, setBuses] = useState<Vehicle[]>([]);
   const [pinnedVid, setPinnedVidRaw] = useState<string | null>(null);
   const [pollPaused, setPollPaused] = useState(false);
-  const [sheetMode, setSheetMode] = useState<'live' | 'plan'>(
-    searchParams.get('mode') === 'plan' ? 'plan' : 'live'
-  );
+  // Trip-plan mode is gated behind a "coming soon" modal for the upcoming
+  // launch — the bottom sheet stays in 'live' for now. `?mode=plan` in the
+  // URL (from old Landing links / bookmarks) triggers the modal instead,
+  // and is stripped from the URL so a refresh doesn't re-trigger it.
+  const [sheetMode, setSheetMode] = useState<'live' | 'plan'>('live');
+  const [planComingSoon, setPlanComingSoon] = useState(false);
+  useEffect(() => {
+    if (searchParams.get('mode') !== 'plan') return;
+    setPlanComingSoon(true);
+    const next = new URLSearchParams(searchParams);
+    next.delete('mode');
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
   // Returning visitors (with a persisted agency choice) land with the
   // bottom sheet collapsed — they've already done the agency setup.
   const [sheetCollapsed, setSheetCollapsed] = useState(() => {
@@ -173,6 +198,7 @@ export default function MapPage() {
     return window.localStorage.getItem(AGENCY_KEY) != null;
   });
   const [lastPollAt, setLastPollAt] = useState<number>(() => Date.now());
+  const [bmcOpen, setBmcOpen] = useState(false);
   // User location is best-effort — used for the popup distance stat and
   // for picking the nearest stop to walk to. Null when denied/unavailable.
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
@@ -183,6 +209,21 @@ export default function MapPage() {
       () => setUserLocation(null),
       { enableHighAccuracy: false, timeout: 8000, maximumAge: 60_000 }
     );
+  }, []);
+
+  // ── BMC prompt: count visits, gate on cooldown ─────────────
+  useEffect(() => {
+    const visits = (Number(localStorage.getItem(BMC_VISIT_COUNT_KEY)) || 0) + 1;
+    localStorage.setItem(BMC_VISIT_COUNT_KEY, String(visits));
+    if (visits < BMC_MIN_VISITS) return;
+    const lastShownAt = Number(localStorage.getItem(BMC_PROMPT_SHOWN_AT_KEY)) || 0;
+    if (Date.now() - lastShownAt < BMC_COOLDOWN_MS) return;
+    setBmcOpen(true);
+  }, []);
+
+  const closeBmc = useCallback(() => {
+    setBmcOpen(false);
+    localStorage.setItem(BMC_PROMPT_SHOWN_AT_KEY, String(Date.now()));
   }, []);
 
   // Stops loaded for the pinned trip. Mirror of what the adapter holds,
@@ -857,14 +898,16 @@ export default function MapPage() {
         </>
       )}
 
-      {/* Right side FAB cluster */}
+      {/* Right side FAB cluster — hidden until each button has a real
+          behavior wired up. Keep the JSX so re-enabling is a one-line
+          flip back to `display: 'flex'`. */}
       <div
         style={{
           position: 'absolute',
           top: 90,
           right: 12,
           zIndex: 30,
-          display: 'flex',
+          display: 'none',
           flexDirection: 'column',
           gap: 8,
         }}
@@ -970,6 +1013,12 @@ export default function MapPage() {
       <BottomSheet
         mode={sheetMode}
         onModeChange={(m) => {
+          // Plan mode is gated — opening it triggers the coming-soon modal
+          // and leaves the sheet on 'live'.
+          if (m === 'plan') {
+            setPlanComingSoon(true);
+            return;
+          }
           setSheetMode(m);
           setSheetCollapsed(false);
         }}
@@ -985,6 +1034,14 @@ export default function MapPage() {
         pollPaused={pollPaused}
         onTogglePause={() => setPollPaused((p) => !p)}
         lastPollAt={lastPollAt}
+      />
+
+      <BmcModal open={bmcOpen && !planComingSoon} onClose={closeBmc} bmcUrl={BMC_URL} />
+      <ComingSoonModal
+        open={planComingSoon}
+        onClose={() => setPlanComingSoon(false)}
+        title={PLAN_TRIP_COMING_SOON_TITLE}
+        message={PLAN_TRIP_COMING_SOON_MESSAGE}
       />
     </div>
   );
