@@ -9,7 +9,7 @@ import {
   IconRefresh, IconRoute, IconSearch, IconClose, IconWalk, IconClock,
 } from '../components/Icons';
 import type { Agency, Route, Vehicle } from '../lib/azureMaps';
-import type { MapAdapter } from '../lib/maps/adapter';
+import type { MapAdapter, StopPoint } from '../lib/maps/adapter';
 import { AzureMapAdapter } from '../lib/maps/azureAdapter';
 
 const POLL_INTERVAL_MS = 15_000;
@@ -94,8 +94,8 @@ export default function MapPage() {
     return window.localStorage.getItem(AGENCY_KEY) != null;
   });
   const [lastPollAt, setLastPollAt] = useState<number>(() => Date.now());
-  // User location is best-effort — used only for the "Distance" stat in
-  // the pinned-bus popup. Null when geolocation is denied or unavailable.
+  // User location is best-effort — used for the popup distance stat and
+  // for picking the nearest stop to walk to. Null when denied/unavailable.
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
   useEffect(() => {
     if (typeof navigator === 'undefined' || !navigator.geolocation) return;
@@ -105,6 +105,11 @@ export default function MapPage() {
       { enableHighAccuracy: false, timeout: 8000, maximumAge: 60_000 }
     );
   }, []);
+
+  // Stops loaded for the pinned trip. Mirror of what the adapter holds,
+  // kept in state so we can compute the nearest stop to the pinned bus
+  // without round-tripping through the adapter.
+  const [loadedStops, setLoadedStops] = useState<StopPoint[]>([]);
 
   const setPinnedVid = useCallback((vid: string | null) => setPinnedVidRaw(vid), []);
 
@@ -314,13 +319,15 @@ export default function MapPage() {
     return () => cancelAnimationFrame(raf);
   }, [buses, pinnedVid]);
 
-  // ── Clean markers + route + stops when route changes ─────
+  // ── Clean markers + route + stops + walk on route change ──
   useEffect(() => {
     const adapter = adapterRef.current;
     if (!adapter) return;
     for (const id of adapter.listMarkerIds()) adapter.removeMarker(id);
     adapter.clearRoute();
     adapter.clearStops();
+    adapter.clearWalkRoute();
+    setLoadedStops([]);
     setPinnedVid(null);
   }, [selectedRoute, setPinnedVid]);
 
@@ -339,6 +346,8 @@ export default function MapPage() {
       if (drawnTripIdRef.current != null) {
         adapter.clearRoute();
         adapter.clearStops();
+        adapter.clearWalkRoute();
+        setLoadedStops([]);
         drawnTripIdRef.current = null;
       }
       return;
@@ -376,7 +385,7 @@ export default function MapPage() {
       .then((r) => r.json())
       .then((rows: StopRow[]) => {
         if (cancelled || drawnTripIdRef.current !== tripId) return;
-        const stops = (rows ?? []).map((s) => ({
+        const stops: StopPoint[] = (rows ?? []).map((s) => ({
           id: String(s.stop_id),
           position: { lat: Number(s.lat), lng: Number(s.lon) },
           name: s.name ?? undefined,
@@ -385,6 +394,7 @@ export default function MapPage() {
           accessible: s.wheelchair_boarding === '1',
         }));
         adapter.updateStops(stops);
+        setLoadedStops(stops);
       })
       .catch((e) => console.error('stops load failed', e));
 
@@ -392,6 +402,74 @@ export default function MapPage() {
       cancelled = true;
     };
   }, [pinnedVid, buses, selectedAgency, mapReady]);
+
+  // ── Sync the user-location marker through the adapter ─────
+  useEffect(() => {
+    const adapter = adapterRef.current;
+    if (!adapter || !mapReady) return;
+    adapter.setUserLocation(userLocation);
+  }, [userLocation, mapReady]);
+
+  // ── Pick the stop on the pinned trip that's nearest to the user ──
+  // Doesn't depend on the bus position (which moves every 15s); only
+  // re-runs when the user location moves or the stops list changes.
+  const [nearestStopId, setNearestStopId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!userLocation || !loadedStops.length) {
+      setNearestStopId(null);
+      return;
+    }
+    let bestId: string | null = null;
+    let bestD = Infinity;
+    for (const stop of loadedStops) {
+      const d = haversineMeters(userLocation, stop.position);
+      if (d < bestD) {
+        bestD = d;
+        bestId = stop.id;
+      }
+    }
+    setNearestStopId(bestId);
+  }, [userLocation, loadedStops]);
+
+  // ── Fetch + draw the walking path from user → nearest stop ──
+  // Skips when geolocation is unavailable / denied. Re-runs only when
+  // the user location moves materially or the target stop changes — not
+  // on every poll. Hits the proxy with the required X-Azure-Maps-Proxy
+  // header (otherwise the server 403s the request).
+  const lastWalkKeyRef = useRef<string | null>(null);
+  useEffect(() => {
+    const adapter = adapterRef.current;
+    if (!adapter || !mapReady) return;
+    if (!userLocation || !nearestStopId) {
+      adapter.clearWalkRoute();
+      lastWalkKeyRef.current = null;
+      return;
+    }
+    const stop = loadedStops.find((s) => s.id === nearestStopId);
+    if (!stop) return;
+    const key = `${userLocation.lat.toFixed(5)},${userLocation.lng.toFixed(5)}|${nearestStopId}`;
+    if (lastWalkKeyRef.current === key) return;
+    lastWalkKeyRef.current = key;
+
+    let cancelled = false;
+    const url =
+      `/api/maps/walk-route?originLat=${userLocation.lat}` +
+      `&originLng=${userLocation.lng}` +
+      `&destLat=${stop.position.lat}` +
+      `&destLng=${stop.position.lng}`;
+    fetch(url, { headers: { 'X-Azure-Maps-Proxy': '1' } })
+      .then((r) => r.json())
+      .then((data: { points?: { lat: number; lng: number }[] }) => {
+        if (cancelled) return;
+        const points = data.points ?? [];
+        if (points.length) adapter.drawWalkRoute(points);
+      })
+      .catch((e) => console.error('walk-route fetch failed', e));
+
+    return () => {
+      cancelled = true;
+    };
+  }, [userLocation, nearestStopId, loadedStops, mapReady]);
 
   // ── Recenter to pinned bus ─────────────────────────────────
   useEffect(() => {

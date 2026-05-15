@@ -136,6 +136,34 @@ button { font-family: inherit; cursor: pointer; }
   to   { opacity: 1; transform: translateY(0); }
 }
 
+/* User-location marker (pulsing blue dot) */
+.lmb-user-location {
+  position: relative;
+  width: 16px;
+  height: 16px;
+}
+.lmb-user-location::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: #2979ff;
+  opacity: 0.35;
+  animation: lmb-pulse-ring 1.8s ease-out infinite;
+}
+.lmb-user-location-dot {
+  position: absolute;
+  inset: 3px;
+  border-radius: 50%;
+  background: #2979ff;
+  border: 2px solid #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+}
+@keyframes lmb-pulse-ring {
+  0%   { transform: scale(1);   opacity: 0.6; }
+  100% { transform: scale(2.8); opacity: 0; }
+}
+
 /* ── Azure Maps popup theme override ──────────────────────────
    The SDK paints popups (.popup-content-container) with a fixed
    white card. On dark mode the themed text inside vanishes against

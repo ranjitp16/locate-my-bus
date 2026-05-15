@@ -88,4 +88,20 @@ export interface MapAdapter {
 
   /** Remove all stop markers. No-op if none are drawn. */
   clearStops(): void;
+
+  /**
+   * Show (or move) the user's location as a pulsing dot. Passing `null`
+   * removes it.
+   */
+  setUserLocation(pos: LatLng | null): void;
+
+  /**
+   * Draw a walking-path polyline (user → nearest stop, typically) with
+   * a distinct colour from the bus route. Replaces any previous walk
+   * path.
+   */
+  drawWalkRoute(points: LatLng[]): void;
+
+  /** Remove the walking-path polyline (if any). No-op if none is drawn. */
+  clearWalkRoute(): void;
 }

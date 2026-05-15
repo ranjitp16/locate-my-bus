@@ -26,14 +26,14 @@ export class AzureMapAdapter implements MapAdapter {
   private map: AtlasMap | null = null;
   private readonly markers = new Map<string, AtlasMarker>();
   private readonly elements = new Map<string, HTMLDivElement>();
-  // Route polyline state. We draw the route as a plain SVG overlay
-  // inside the map's canvas container (instead of fighting MapLibre's
-  // line-dasharray, which doesn't animate smoothly via setOptions), and
-  // reproject on every `move` event so the path tracks the camera. CSS
-  // keyframes (lmb-dash in tokens.css) drive the dash-flow animation.
-  private routeSvg: SVGSVGElement | null = null;
-  private routeCoords: [number, number][] | null = null;
-  private routeMoveHandler: (() => void) | null = null;
+  // Route polyline + walk-path state. Both are drawn as plain SVG
+  // overlays inside the map's canvas container (instead of fighting
+  // MapLibre's line-dasharray, which doesn't animate smoothly via
+  // setOptions), and reprojected on every `move` event so the paths
+  // track the camera. CSS keyframes (lmb-dash) drive the dash flow.
+  private routeOverlay: SvgOverlay | null = null;
+  private walkOverlay: SvgOverlay | null = null;
+  private userLocationMarker: AtlasMarker | null = null;
   // Stop markers + popups for the current trip. Stored together so
   // clearStops() can dispose both halves cleanly.
   private readonly stopMarkers: { marker: AtlasMarker; popup: AtlasPopup }[] = [];
@@ -66,7 +66,9 @@ export class AzureMapAdapter implements MapAdapter {
 
   dispose(): void {
     this.clearRoute();
+    this.clearWalkRoute();
     this.clearStops();
+    this.setUserLocation(null);
     this.map?.dispose();
     this.map = null;
     this.atlas = null;
@@ -153,64 +155,46 @@ export class AzureMapAdapter implements MapAdapter {
   }
 
   drawRoute(points: LatLng[]): void {
-    if (!this.map || !points.length) return;
-    this.clearRoute();
-
-    const coords: [number, number][] = points.map((p) => [p.lng, p.lat]);
-    this.routeCoords = coords;
-
-    const svg = document.createElementNS(SVG_NS, 'svg');
-    svg.style.cssText =
-      'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:visible;';
-
-    const base = document.createElementNS(SVG_NS, 'path');
-    base.setAttribute('fill', 'none');
-    base.setAttribute('stroke', 'var(--signal)');
-    base.setAttribute('stroke-width', '5');
-    base.setAttribute('stroke-opacity', '0.28');
-    base.setAttribute('stroke-linecap', 'round');
-    base.setAttribute('stroke-linejoin', 'round');
-    base.classList.add('lmb-route-base');
-
-    const dash = document.createElementNS(SVG_NS, 'path');
-    dash.setAttribute('fill', 'none');
-    dash.setAttribute('stroke', 'var(--signal)');
-    dash.setAttribute('stroke-width', '3');
-    dash.setAttribute('stroke-linecap', 'round');
-    dash.setAttribute('stroke-linejoin', 'round');
-    dash.setAttribute('stroke-dasharray', '10 8');
-    dash.style.animation = 'lmb-dash 1.6s linear infinite';
-    dash.classList.add('lmb-route-dash');
-
-    svg.appendChild(base);
-    svg.appendChild(dash);
-
-    // Insert under the marker collection so bus markers stay on top.
-    const container = this.map.getCanvasContainer();
-    const markerContainer = container.querySelector('.marker-collection-container');
-    if (markerContainer) {
-      container.insertBefore(svg, markerContainer);
-    } else {
-      container.appendChild(svg);
-    }
-    this.routeSvg = svg;
-
-    const handler = () => this.updateRouteSvg();
-    this.routeMoveHandler = handler;
-    this.map.events.add('move', handler);
-    this.updateRouteSvg();
+    this.routeOverlay = this.replaceOverlay(this.routeOverlay, points, 'var(--signal)');
   }
 
   clearRoute(): void {
-    if (this.routeMoveHandler && this.map) {
-      this.map.events.remove('move', this.routeMoveHandler);
+    this.removeOverlay(this.routeOverlay);
+    this.routeOverlay = null;
+  }
+
+  drawWalkRoute(points: LatLng[]): void {
+    // Distinct green so it can't be confused with the bus route.
+    this.walkOverlay = this.replaceOverlay(this.walkOverlay, points, '#2e7d32');
+  }
+
+  clearWalkRoute(): void {
+    this.removeOverlay(this.walkOverlay);
+    this.walkOverlay = null;
+  }
+
+  setUserLocation(pos: LatLng | null): void {
+    if (!this.map || !this.atlas) return;
+    if (pos == null) {
+      if (this.userLocationMarker) {
+        this.map.markers.remove(this.userLocationMarker);
+        this.userLocationMarker = null;
+      }
+      return;
     }
-    this.routeMoveHandler = null;
-    if (this.routeSvg) {
-      this.routeSvg.remove();
-      this.routeSvg = null;
+    if (this.userLocationMarker) {
+      this.userLocationMarker.setOptions({ position: [pos.lng, pos.lat] });
+      return;
     }
-    this.routeCoords = null;
+    const wrap = document.createElement('div');
+    wrap.className = 'lmb-user-location';
+    wrap.innerHTML = '<div class="lmb-user-location-dot"></div>';
+    this.userLocationMarker = new this.atlas.HtmlMarker({
+      htmlContent: wrap,
+      position: [pos.lng, pos.lat],
+      anchor: 'center',
+    });
+    this.map.markers.add(this.userLocationMarker);
   }
 
   updateStops(stops: StopPoint[]): void {
@@ -298,22 +282,80 @@ export class AzureMapAdapter implements MapAdapter {
     this.stopMarkers.length = 0;
   }
 
-  private updateRouteSvg(): void {
-    if (!this.map || !this.routeSvg || !this.routeCoords) return;
-    // positionsToPixels takes [[lng, lat], ...] and returns [[x, y], ...].
-    const pixels = this.map.positionsToPixels(this.routeCoords) as number[][];
+  // ── Shared SVG-overlay plumbing ───────────────────────────
+  // Builds a translucent base + animated dashed overlay along `points`
+  // and re-renders it on every camera move. Used for both the bus
+  // route and the user→stop walking path with different stroke colours.
+  private replaceOverlay(prev: SvgOverlay | null, points: LatLng[], color: string): SvgOverlay | null {
+    if (!this.map) return null;
+    if (prev) this.removeOverlay(prev);
+    if (!points.length) return null;
+
+    const coords: [number, number][] = points.map((p) => [p.lng, p.lat]);
+    const svg = document.createElementNS(SVG_NS, 'svg');
+    svg.style.cssText =
+      'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:visible;';
+
+    const base = document.createElementNS(SVG_NS, 'path');
+    base.setAttribute('fill', 'none');
+    base.setAttribute('stroke', color);
+    base.setAttribute('stroke-width', '5');
+    base.setAttribute('stroke-opacity', '0.28');
+    base.setAttribute('stroke-linecap', 'round');
+    base.setAttribute('stroke-linejoin', 'round');
+    base.classList.add('lmb-overlay-base');
+
+    const dash = document.createElementNS(SVG_NS, 'path');
+    dash.setAttribute('fill', 'none');
+    dash.setAttribute('stroke', color);
+    dash.setAttribute('stroke-width', '3');
+    dash.setAttribute('stroke-linecap', 'round');
+    dash.setAttribute('stroke-linejoin', 'round');
+    dash.setAttribute('stroke-dasharray', '10 8');
+    dash.style.animation = 'lmb-dash 1.6s linear infinite';
+    dash.classList.add('lmb-overlay-dash');
+
+    svg.appendChild(base);
+    svg.appendChild(dash);
+
+    const container = this.map.getCanvasContainer();
+    const markerContainer = container.querySelector('.marker-collection-container');
+    if (markerContainer) container.insertBefore(svg, markerContainer);
+    else container.appendChild(svg);
+
+    const overlay: SvgOverlay = { svg, coords, base, dash, moveHandler: null };
+    const handler = () => this.updateOverlay(overlay);
+    overlay.moveHandler = handler;
+    this.map.events.add('move', handler);
+    this.updateOverlay(overlay);
+    return overlay;
+  }
+
+  private removeOverlay(overlay: SvgOverlay | null): void {
+    if (!overlay) return;
+    if (overlay.moveHandler && this.map) {
+      this.map.events.remove('move', overlay.moveHandler);
+    }
+    overlay.svg.remove();
+  }
+
+  private updateOverlay(overlay: SvgOverlay): void {
+    if (!this.map) return;
+    const pixels = this.map.positionsToPixels(overlay.coords) as number[][];
     if (!pixels || pixels.length < 2) return;
-    const d =
-      'M ' +
-      pixels
-        .map((p) => `${p[0].toFixed(1)},${p[1].toFixed(1)}`)
-        .join(' L ');
-    const base = this.routeSvg.querySelector('.lmb-route-base');
-    const dash = this.routeSvg.querySelector('.lmb-route-dash');
-    if (base) base.setAttribute('d', d);
-    if (dash) dash.setAttribute('d', d);
+    const d = 'M ' + pixels.map((p) => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' L ');
+    overlay.base.setAttribute('d', d);
+    overlay.dash.setAttribute('d', d);
   }
 }
+
+type SvgOverlay = {
+  svg: SVGSVGElement;
+  coords: [number, number][];
+  base: SVGPathElement;
+  dash: SVGPathElement;
+  moveHandler: (() => void) | null;
+};
 
 function toAzurePosition(p: LatLng): [number, number] {
   // Azure Maps takes [longitude, latitude], not the usual lat/lng pair.
