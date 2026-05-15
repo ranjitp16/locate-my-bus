@@ -893,14 +893,16 @@ export default function MapPage() {
         </>
       )}
 
-      {/* Right side FAB cluster */}
+      {/* Right side FAB cluster — hidden until each button has a real
+          behavior wired up. Keep the JSX so re-enabling is a one-line
+          flip back to `display: 'flex'`. */}
       <div
         style={{
           position: 'absolute',
           top: 90,
           right: 12,
           zIndex: 30,
-          display: 'flex',
+          display: 'none',
           flexDirection: 'column',
           gap: 8,
         }}
