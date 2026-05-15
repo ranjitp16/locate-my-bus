@@ -39,6 +39,7 @@ export type Agency = {
   timezone?: string;
   language?: string;
   phone?: string;
+  fare_url?: string;
 };
 
 export type Route = {

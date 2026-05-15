@@ -5,7 +5,7 @@ import { useTheme } from '../theme/ThemeProvider';
 import { BusIconG, BusMark } from '../components/BusGlyph';
 import { FAB, LiveDot, Tag } from '../components/atoms';
 import {
-  IconArrowLeft, IconChevron, IconGear, IconLayers, IconLocation, IconPin,
+  IconArrowLeft, IconChevron, IconExternal, IconGear, IconLayers, IconLocation, IconPin,
   IconRefresh, IconRoute, IconSearch, IconClose, IconWalk, IconClock,
 } from '../components/Icons';
 import type { Agency, Route, Vehicle } from '../lib/azureMaps';
@@ -36,6 +36,7 @@ export default function MapPage() {
   const [sheetMode, setSheetMode] = useState<'live' | 'plan'>(
     searchParams.get('mode') === 'plan' ? 'plan' : 'live'
   );
+  const [sheetCollapsed, setSheetCollapsed] = useState(false);
   const [lastPollAt, setLastPollAt] = useState<number>(() => Date.now());
 
   const setPinnedVid = useCallback((vid: string | null) => setPinnedVidRaw(vid), []);
@@ -430,16 +431,19 @@ export default function MapPage() {
       {/* Bottom sheet */}
       <BottomSheet
         mode={sheetMode}
-        onModeChange={setSheetMode}
+        onModeChange={(m) => {
+          setSheetMode(m);
+          setSheetCollapsed(false);
+        }}
+        collapsed={sheetCollapsed}
+        onToggleCollapse={() => setSheetCollapsed((c) => !c)}
         agency={selectedAgency}
         route={selectedRoute}
         agencies={agencies}
         routes={routes}
         buses={buses}
-        pinnedVid={pinnedVid}
         onSelectAgency={setSelectedAgency}
         onSelectRoute={setSelectedRoute}
-        onPinBus={setPinnedVid}
         pollPaused={pollPaused}
         onTogglePause={() => setPollPaused((p) => !p)}
         lastPollAt={lastPollAt}
@@ -491,15 +495,15 @@ function PopupStat({ value, unit, label }: { value: string; unit: string; label:
 type SheetProps = {
   mode: 'live' | 'plan';
   onModeChange: (m: 'live' | 'plan') => void;
+  collapsed: boolean;
+  onToggleCollapse: () => void;
   agency: Agency | null;
   route: Route | null;
   agencies: Agency[];
   routes: Route[];
   buses: Vehicle[];
-  pinnedVid: string | null;
   onSelectAgency: (a: Agency) => void;
   onSelectRoute: (r: Route) => void;
-  onPinBus: (vid: string) => void;
   pollPaused: boolean;
   onTogglePause: () => void;
   lastPollAt: number;
@@ -519,14 +523,27 @@ function BottomSheet(p: SheetProps) {
         borderTopLeftRadius: 24,
         borderTopRightRadius: 24,
         boxShadow: '0 -10px 30px rgba(0,0,0,0.3)',
-        paddingBottom: 24,
+        paddingBottom: p.collapsed ? 12 : 24,
         maxHeight: '70vh',
         overflowY: 'auto',
       }}
     >
-      <div style={{ display: 'flex', justifyContent: 'center', padding: '8px 0 4px' }}>
+      {/* Drag handle doubles as a tap-to-collapse target. */}
+      <button
+        onClick={p.onToggleCollapse}
+        aria-label={p.collapsed ? 'Expand sheet' : 'Collapse sheet'}
+        style={{
+          display: 'flex',
+          justifyContent: 'center',
+          padding: '8px 0 4px',
+          width: '100%',
+          background: 'transparent',
+          border: 'none',
+          cursor: 'pointer',
+        }}
+      >
         <div style={{ width: 40, height: 4, borderRadius: 2, background: 'var(--border-hi)' }} />
-      </div>
+      </button>
 
       <div
         style={{
@@ -534,10 +551,22 @@ function BottomSheet(p: SheetProps) {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          borderBottom: '1px solid var(--border)',
+          borderBottom: p.collapsed ? 'none' : '1px solid var(--border)',
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <button
+          onClick={p.onToggleCollapse}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 10,
+            background: 'transparent',
+            border: 'none',
+            color: 'var(--text)',
+            cursor: 'pointer',
+            padding: 0,
+          }}
+        >
           <LiveDot label={p.pollPaused ? 'Paused' : 'Polling'} />
           {!p.pollPaused && (
             <span className="mono" style={{ fontSize: 11, color: 'var(--text-muted)' }}>
@@ -547,7 +576,15 @@ function BottomSheet(p: SheetProps) {
               </span>
             </span>
           )}
-        </div>
+          <IconChevron
+            size={14}
+            style={{
+              color: 'var(--text-muted)',
+              transform: p.collapsed ? 'rotate(180deg)' : 'none',
+              transition: 'transform 150ms ease',
+            }}
+          />
+        </button>
         <button
           onClick={p.onTogglePause}
           style={{
@@ -568,21 +605,21 @@ function BottomSheet(p: SheetProps) {
         </button>
       </div>
 
-      {p.mode === 'live' ? (
-        <LiveSheet
-          agency={p.agency}
-          route={p.route}
-          agencies={p.agencies}
-          routes={p.routes}
-          buses={p.buses}
-          pinnedVid={p.pinnedVid}
-          onSelectAgency={p.onSelectAgency}
-          onSelectRoute={p.onSelectRoute}
-          onPinBus={p.onPinBus}
-          onPlanTrip={() => p.onModeChange('plan')}
-        />
-      ) : (
-        <PlanSheet onClose={() => p.onModeChange('live')} />
+      {!p.collapsed && (
+        p.mode === 'live' ? (
+          <LiveSheet
+            agency={p.agency}
+            route={p.route}
+            agencies={p.agencies}
+            routes={p.routes}
+            buses={p.buses}
+            onSelectAgency={p.onSelectAgency}
+            onSelectRoute={p.onSelectRoute}
+            onPlanTrip={() => p.onModeChange('plan')}
+          />
+        ) : (
+          <PlanSheet onClose={() => p.onModeChange('live')} />
+        )
       )}
     </div>
   );
@@ -594,26 +631,14 @@ function LiveSheet(p: {
   agencies: Agency[];
   routes: Route[];
   buses: Vehicle[];
-  pinnedVid: string | null;
   onSelectAgency: (a: Agency) => void;
   onSelectRoute: (r: Route) => void;
-  onPinBus: (vid: string) => void;
   onPlanTrip: () => void;
 }) {
+  const [showAgencyDetails, setShowAgencyDetails] = useState(false);
   return (
     <>
       <div style={{ padding: '14px 18px 8px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-        <PickerRow
-          label="Agency"
-          value={p.agency?.name ?? 'Choose…'}
-          sub={p.agency?.timezone ?? `${p.agencies.length} available`}
-          tag={`${p.agencies.length} loaded`}
-          options={p.agencies.map((a) => ({ key: a.id, label: a.name }))}
-          onPick={(key) => {
-            const a = p.agencies.find((x) => x.id === key);
-            if (a) p.onSelectAgency(a);
-          }}
-        />
         <PickerRow
           label="Route"
           value={p.route ? `${p.route.id} · ${p.route.long_name}` : 'Choose…'}
@@ -627,37 +652,27 @@ function LiveSheet(p: {
             if (r) p.onSelectRoute(r);
           }}
         />
-      </div>
 
-      {p.buses.length > 0 && (
-        <div style={{ padding: '8px 18px 4px' }}>
-          <div
-            className="mono"
-            style={{
-              fontSize: 10,
-              fontWeight: 700,
-              letterSpacing: 1.4,
-              textTransform: 'uppercase',
-              color: 'var(--text-muted)',
-              marginBottom: 8,
-            }}
-          >
-            Buses on route
-          </div>
-          <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 4 }}>
-            {p.buses.map((b) => (
-              <BusCard
-                key={b.vehicle_id}
-                num={p.route?.id ?? ''}
-                vid={b.vehicle_id}
-                speed={Math.round(b.speed ?? 0)}
-                pinned={p.pinnedVid === b.vehicle_id}
-                onClick={() => p.onPinBus(b.vehicle_id)}
-              />
-            ))}
-          </div>
-        </div>
-      )}
+        <PickerRow
+          label="Agency"
+          value={p.agency?.name ?? 'Choose…'}
+          sub={p.agency?.timezone ?? `${p.agencies.length} available`}
+          tag={`${p.agencies.length} loaded`}
+          options={p.agencies.map((a) => ({ key: a.id, label: a.name }))}
+          onPick={(key) => {
+            const a = p.agencies.find((x) => x.id === key);
+            if (a) p.onSelectAgency(a);
+          }}
+        />
+
+        {p.agency && (
+          <AgencyDetails
+            agency={p.agency}
+            open={showAgencyDetails}
+            onToggle={() => setShowAgencyDetails((o) => !o)}
+          />
+        )}
+      </div>
 
       <div style={{ padding: '14px 18px 8px' }}>
         <button
@@ -698,6 +713,175 @@ function LiveSheet(p: {
         </button>
       </div>
     </>
+  );
+}
+
+// Collapsible row showing metadata for the currently selected agency.
+// Content re-renders whenever the `agency` prop changes; the open/closed
+// state is owned by the parent so the row stays as the user left it
+// across agency selections.
+function AgencyDetails({ agency, open, onToggle }: { agency: Agency; open: boolean; onToggle: () => void }) {
+  return (
+    <div
+      style={{
+        borderRadius: 12,
+        border: '1px solid var(--border)',
+        background: 'var(--surface)',
+        overflow: 'hidden',
+      }}
+    >
+      <button
+        onClick={onToggle}
+        aria-expanded={open}
+        style={{
+          width: '100%',
+          padding: '10px 12px',
+          background: 'transparent',
+          border: 'none',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          cursor: 'pointer',
+        }}
+      >
+        <span
+          className="mono"
+          style={{
+            fontSize: 9,
+            fontWeight: 700,
+            color: 'var(--text-muted)',
+            letterSpacing: 0.8,
+            textTransform: 'uppercase',
+            width: 60,
+            flexShrink: 0,
+            textAlign: 'left',
+          }}
+        >
+          Details
+        </span>
+        <span
+          style={{
+            flex: 1,
+            fontSize: 12,
+            color: 'var(--text-soft)',
+            fontFamily: 'var(--font-sans)',
+            textAlign: 'left',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {agency.timezone ?? '—'} · {agency.language ?? '—'}
+          {agency.phone ? ` · ${agency.phone}` : ''}
+        </span>
+        <IconChevron
+          size={14}
+          style={{
+            color: 'var(--text-muted)',
+            transform: open ? 'rotate(180deg)' : 'none',
+            transition: 'transform 150ms ease',
+          }}
+        />
+      </button>
+      {open && (
+        <div
+          style={{
+            padding: '4px 12px 12px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 6,
+            borderTop: '1px solid var(--border)',
+          }}
+        >
+          <DetailRow label="Name" value={agency.name} />
+          <DetailRow label="Timezone" value={agency.timezone ?? '—'} mono />
+          <DetailRow label="Language" value={agency.language ?? '—'} mono />
+          <DetailRow label="Phone" value={agency.phone ?? '—'} mono />
+          <DetailLink label="Website" href={agency.url} />
+          <DetailLink label="Fares" href={agency.fare_url} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DetailRow({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, paddingTop: 6 }}>
+      <span
+        className="mono"
+        style={{
+          fontSize: 9,
+          fontWeight: 700,
+          color: 'var(--text-muted)',
+          letterSpacing: 0.6,
+          textTransform: 'uppercase',
+          width: 70,
+          flexShrink: 0,
+        }}
+      >
+        {label}
+      </span>
+      <span
+        style={{
+          fontSize: 12,
+          color: 'var(--text)',
+          fontFamily: mono ? 'var(--font-mono)' : 'var(--font-sans)',
+          fontWeight: 500,
+          minWidth: 0,
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+        }}
+      >
+        {value}
+      </span>
+    </div>
+  );
+}
+
+function DetailLink({ label, href }: { label: string; href?: string }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, paddingTop: 6 }}>
+      <span
+        className="mono"
+        style={{
+          fontSize: 9,
+          fontWeight: 700,
+          color: 'var(--text-muted)',
+          letterSpacing: 0.6,
+          textTransform: 'uppercase',
+          width: 70,
+          flexShrink: 0,
+        }}
+      >
+        {label}
+      </span>
+      {href ? (
+        <a
+          href={href}
+          target="_blank"
+          rel="noreferrer noopener"
+          style={{
+            fontSize: 12,
+            color: 'var(--signal-soft)',
+            fontWeight: 600,
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 5,
+            minWidth: 0,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{href}</span>
+          <IconExternal size={11} />
+        </a>
+      ) : (
+        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>—</span>
+      )}
+    </div>
   );
 }
 
@@ -805,63 +989,6 @@ function PickerRow(props: {
         </div>
       )}
     </div>
-  );
-}
-
-function BusCard({
-  num,
-  vid,
-  speed,
-  pinned,
-  onClick,
-}: {
-  num: string;
-  vid: string;
-  speed: number;
-  pinned?: boolean;
-  onClick?: () => void;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      style={{
-        flex: '0 0 96px',
-        padding: '10px',
-        borderRadius: 12,
-        border: pinned ? '1.5px solid var(--signal)' : '1px solid var(--border)',
-        background: pinned ? 'color-mix(in oklab, var(--signal) 10%, var(--surface))' : 'var(--surface)',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 6,
-        textAlign: 'left',
-      }}
-    >
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div
-          style={{
-            width: 22,
-            height: 16,
-            borderRadius: 8,
-            background: 'var(--signal)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          <span className="mono" style={{ fontSize: 9, fontWeight: 800, color: 'var(--signal-ink)' }}>
-            {num}
-          </span>
-        </div>
-        {pinned && <IconPin size={12} style={{ color: 'var(--signal)' }} />}
-      </div>
-      <div className="mono" style={{ fontSize: 10, color: 'var(--text-muted)', lineHeight: 1 }}>
-        #{vid}
-      </div>
-      <div className="mono" style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)', lineHeight: 1 }}>
-        {speed}
-        <span style={{ fontSize: 9, color: 'var(--text-muted)', marginLeft: 2 }}>km/h</span>
-      </div>
-    </button>
   );
 }
 
