@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useIsDesktop } from '../lib/useMediaQuery';
 import { useAccessKey } from '../lib/useAccessKey';
-import { AccessKeyRow } from '../components/AccessKeyRow';
 import { DesktopShell } from '../components/DesktopShell';
 import { MobileNavSheet } from '../components/MobileNavSheet';
 import { LiveDot, Tag } from '../components/atoms';
@@ -125,7 +124,7 @@ export default function MonitorPage() {
   const body = (
     <>
       {!accessKey && (
-        <AccessKeyPrompt value={accessKey} onChange={setAccessKey} />
+        <AccessKeyPrompt onSubmit={setAccessKey} />
       )}
       {accessKey && error && <Banner tone="hot">{error}</Banner>}
       {accessKey && !error && (
@@ -245,7 +244,14 @@ function RefreshButton({ onClick, busy, compact }: { onClick: () => void; busy: 
   );
 }
 
-function AccessKeyPrompt({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+// Uses a *local* draft so every keystroke doesn't commit the key to the
+// parent — the parent kicks off four authed fetches whenever it changes,
+// and a 401 clears the key, which would wipe the user's input mid-type.
+function AccessKeyPrompt({ onSubmit }: { onSubmit: (v: string) => void }) {
+  const [draft, setDraft] = useState('');
+  const submit = () => {
+    if (draft) onSubmit(draft);
+  };
   return (
     <div
       style={{
@@ -270,10 +276,55 @@ function AccessKeyPrompt({ value, onChange }: { value: string; onChange: (v: str
       >
         Authentication required
       </div>
-      <div style={{ fontSize: 14, color: 'var(--text)', fontWeight: 500, marginBottom: 4 }}>
+      <div style={{ fontSize: 14, color: 'var(--text)', fontWeight: 500, marginBottom: 12 }}>
         Enter the dashboard access key to view daemon health and feed analytics.
       </div>
-      <AccessKeyRow value={value} onChange={onChange} />
+      <input
+        type="password"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            submit();
+          }
+        }}
+        placeholder="Access key"
+        autoFocus
+        style={{
+          width: '100%',
+          padding: '11px 12px',
+          background: 'var(--bg)',
+          color: 'var(--text)',
+          border: '1px solid var(--border)',
+          borderRadius: 10,
+          fontFamily: 'var(--font-mono)',
+          fontSize: 13,
+          outline: 'none',
+          marginBottom: 10,
+        }}
+      />
+      <button
+        onClick={submit}
+        disabled={!draft}
+        style={{
+          width: '100%',
+          padding: '11px 14px',
+          borderRadius: 10,
+          background: 'var(--signal)',
+          color: 'var(--signal-ink)',
+          border: 'none',
+          fontFamily: 'var(--font-mono)',
+          fontWeight: 800,
+          fontSize: 12,
+          letterSpacing: 0.4,
+          textTransform: 'uppercase',
+          opacity: !draft ? 0.5 : 1,
+          cursor: draft ? 'pointer' : 'not-allowed',
+        }}
+      >
+        Unlock
+      </button>
     </div>
   );
 }
