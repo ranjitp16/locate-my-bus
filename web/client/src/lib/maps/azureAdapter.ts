@@ -37,7 +37,11 @@ export class AzureMapAdapter implements MapAdapter {
   // Stop markers + popups for the current trip. Stored together so
   // clearStops() can dispose both halves cleanly.
   private readonly stopMarkers: { marker: AtlasMarker; popup: AtlasPopup }[] = [];
-  private openStopPopup: AtlasPopup | null = null;
+  // Two independent slots so hover previews coexist with a click-pinned
+  // popup. The pinned one stays put while the user hovers other stops;
+  // hover-out only dismisses the popup that the cursor brought up.
+  private pinnedPopup: AtlasPopup | null = null;
+  private hoverPopup: AtlasPopup | null = null;
 
   async init(container: HTMLElement, opts: MapAdapterInit): Promise<void> {
     const atlas = await import('azure-maps-control');
@@ -234,19 +238,46 @@ export class AzureMapAdapter implements MapAdapter {
         closeButton: true,
       });
 
-      const handler = () => {
-        if (this.openStopPopup && this.openStopPopup !== popup) {
-          this.openStopPopup.close();
-        }
-        if (this.openStopPopup === popup) {
+      // Click toggles a sticky/pinned popup. Re-clicking the same stop
+      // closes it. Clicking a different stop swaps the pin. Hover popups
+      // can sit alongside a pinned one on a different stop.
+      this.map.events.add('click', marker, () => {
+        if (this.pinnedPopup === popup) {
           popup.close();
-          this.openStopPopup = null;
-        } else {
-          popup.open(this.map!);
-          this.openStopPopup = popup;
+          this.pinnedPopup = null;
+          return;
         }
-      };
-      this.map.events.add('click', marker, handler);
+        if (this.pinnedPopup && this.pinnedPopup !== popup) {
+          this.pinnedPopup.close();
+        }
+        // If this stop's popup is currently hover-open, "promote" it.
+        if (this.hoverPopup === popup) this.hoverPopup = null;
+        else popup.open(this.map!);
+        this.pinnedPopup = popup;
+      });
+
+      // Hover previews the popup. Coexists with a pinned popup on a
+      // different stop. Skip when this same stop is already pinned/hovered.
+      this.map.events.add('mouseover', marker, () => {
+        if (this.pinnedPopup === popup) return;
+        if (this.hoverPopup === popup) return;
+        if (this.hoverPopup) this.hoverPopup.close();
+        popup.open(this.map!);
+        this.hoverPopup = popup;
+      });
+
+      this.map.events.add('mouseout', marker, () => {
+        if (this.hoverPopup === popup && this.pinnedPopup !== popup) {
+          popup.close();
+          this.hoverPopup = null;
+        }
+      });
+
+      // The popup's own X also fires 'close' — reset whichever slot held it.
+      this.map.events.add('close', popup, () => {
+        if (this.pinnedPopup === popup) this.pinnedPopup = null;
+        if (this.hoverPopup === popup) this.hoverPopup = null;
+      });
 
       this.map.markers.add(marker);
       this.stopMarkers.push({ marker, popup });
@@ -254,19 +285,16 @@ export class AzureMapAdapter implements MapAdapter {
   }
 
   clearStops(): void {
-    if (!this.map) {
-      this.stopMarkers.length = 0;
-      this.openStopPopup = null;
-      return;
+    if (this.map) {
+      if (this.pinnedPopup) this.pinnedPopup.close();
+      if (this.hoverPopup) this.hoverPopup.close();
+      for (const { marker, popup } of this.stopMarkers) {
+        this.map.markers.remove(marker);
+        popup.close();
+      }
     }
-    if (this.openStopPopup) {
-      this.openStopPopup.close();
-      this.openStopPopup = null;
-    }
-    for (const { marker, popup } of this.stopMarkers) {
-      this.map.markers.remove(marker);
-      popup.close();
-    }
+    this.pinnedPopup = null;
+    this.hoverPopup = null;
     this.stopMarkers.length = 0;
   }
 

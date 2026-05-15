@@ -177,7 +177,53 @@ button { font-family: inherit; cursor: pointer; }
 .atlas-popup-container {
   border-color: var(--bg-elevated) !important;
 }
+/* The SDK ships a fixed downward-pointing arrow, which lies even when the
+   popup is positioned below/left/right of its anchor. Hide it and draw
+   our own pseudo-element arrow that follows the orientation class the
+   SDK adds to .popup-container (.top / .bottom / .left / .right). */
 .popup-arrow,
 .atlas-popup-tip {
-  border-top-color: var(--bg-elevated) !important;
+  display: none !important;
+}
+.popup-content-container {
+  position: relative;
+}
+.popup-container.bottom .popup-content-container::after,
+.popup-container.top .popup-content-container::after,
+.popup-container.left .popup-content-container::after,
+.popup-container.right .popup-content-container::after {
+  content: '';
+  position: absolute;
+  width: 0;
+  height: 0;
+  border: 10px solid transparent;
+  pointer-events: none;
+}
+/* Popup is ABOVE anchor: arrow at bottom of popup pointing DOWN. */
+.popup-container.bottom .popup-content-container::after {
+  bottom: -10px;
+  left: 50%;
+  transform: translateX(-50%);
+  border-top-color: var(--bg-elevated);
+}
+/* Popup is BELOW anchor: arrow at top of popup pointing UP. */
+.popup-container.top .popup-content-container::after {
+  top: -10px;
+  left: 50%;
+  transform: translateX(-50%);
+  border-bottom-color: var(--bg-elevated);
+}
+/* Popup is to RIGHT of anchor: arrow at left of popup pointing LEFT. */
+.popup-container.left .popup-content-container::after {
+  left: -10px;
+  top: 50%;
+  transform: translateY(-50%);
+  border-right-color: var(--bg-elevated);
+}
+/* Popup is to LEFT of anchor: arrow at right of popup pointing RIGHT. */
+.popup-container.right .popup-content-container::after {
+  right: -10px;
+  top: 50%;
+  transform: translateY(-50%);
+  border-left-color: var(--bg-elevated);
 }
