@@ -6,6 +6,7 @@ const Landing = lazy(() => import('./pages/Landing'));
 const MapPage = lazy(() => import('./pages/MapPage'));
 const AgenciesPage = lazy(() => import('./pages/AgenciesPage'));
 const MonitorPage = lazy(() => import('./pages/MonitorPage'));
+const AboutPage = lazy(() => import('./pages/AboutPage'));
 
 function PageFallback() {
   return (
@@ -36,6 +37,7 @@ export default function App() {
           <Route path="/view-map" element={<MapPage />} />
           <Route path="/dash/agencies" element={<AgenciesPage />} />
           <Route path="/dash/monitor" element={<MonitorPage />} />
+          <Route path="/about" element={<AboutPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </Suspense>
