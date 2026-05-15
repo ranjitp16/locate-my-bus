@@ -9,13 +9,15 @@ import {
   IconRefresh, IconRoute, IconSearch, IconClose, IconWalk, IconClock,
 } from '../components/Icons';
 import type { Agency, Route, Vehicle } from '../lib/azureMaps';
-import { proxyAuthOptions, proxyTransformRequest } from '../lib/azureMaps';
+import type { MapAdapter } from '../lib/maps/adapter';
+import { AzureMapAdapter } from '../lib/maps/azureAdapter';
 
 const POLL_INTERVAL_MS = 15_000;
 
-type AtlasNs = typeof import('azure-maps-control');
-
 const MAP_STYLE_KEY = 'lmb-map-style';
+const AGENCY_KEY = 'lmb-agency-id';
+const ROUTE_KEY = 'lmb-route-id';
+const SHOW_ALL_ROUTES_KEY = 'lmb-show-all-routes';
 const MAP_STYLES: { value: string; label: string }[] = [
   { value: 'road', label: 'Road' },
   { value: 'grayscale_dark', label: 'Grayscale' },
@@ -41,11 +43,20 @@ export default function MapPage() {
     if (typeof window !== 'undefined') window.localStorage.setItem(MAP_STYLE_KEY, next);
   }, []);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [routePickerOpen, setRoutePickerOpen] = useState(false);
+  const [showAllRoutes, setShowAllRoutesState] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return window.localStorage.getItem(SHOW_ALL_ROUTES_KEY) === '1';
+  });
+  const setShowAllRoutes = useCallback((next: boolean) => {
+    setShowAllRoutesState(next);
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(SHOW_ALL_ROUTES_KEY, next ? '1' : '0');
+    }
+  }, []);
 
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
-  const mapInstanceRef = useRef<InstanceType<AtlasNs['Map']> | null>(null);
-  const markersRef = useRef<Map<string, { marker: InstanceType<AtlasNs['HtmlMarker']>; el: HTMLDivElement }>>(new Map());
-  const atlasRef = useRef<AtlasNs | null>(null);
+  const adapterRef = useRef<MapAdapter | null>(null);
 
   const [mapReady, setMapReady] = useState(false);
   const [agencies, setAgencies] = useState<Agency[]>([]);
@@ -58,50 +69,49 @@ export default function MapPage() {
   const [sheetMode, setSheetMode] = useState<'live' | 'plan'>(
     searchParams.get('mode') === 'plan' ? 'plan' : 'live'
   );
-  const [sheetCollapsed, setSheetCollapsed] = useState(false);
+  // Returning visitors (with a persisted agency choice) land with the
+  // bottom sheet collapsed — they've already done the agency setup.
+  const [sheetCollapsed, setSheetCollapsed] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return window.localStorage.getItem(AGENCY_KEY) != null;
+  });
   const [lastPollAt, setLastPollAt] = useState<number>(() => Date.now());
 
   const setPinnedVid = useCallback((vid: string | null) => setPinnedVidRaw(vid), []);
 
-  // ── Initialize Azure Maps once ─────────────────────────────
+  // ── Initialize the map adapter once ───────────────────────
+  // Swap providers by replacing AzureMapAdapter with another impl
+  // of MapAdapter — no other change in this file should be needed.
   useEffect(() => {
     let cancelled = false;
+    const adapter = new AzureMapAdapter();
     (async () => {
-      const atlas = await import('azure-maps-control');
-      await import('azure-maps-control/dist/atlas.min.css');
-      if (cancelled || !mapContainerRef.current) return;
-      atlasRef.current = atlas;
-
-      const map = new atlas.Map(mapContainerRef.current, {
-        center: [-63.5752, 44.6488], // Halifax
+      if (!mapContainerRef.current) return;
+      await adapter.init(mapContainerRef.current, {
+        center: { lat: 44.6488, lng: -63.5752 }, // Halifax
         zoom: 12,
         style: mapStyle,
-        language: 'en-US',
-        authOptions: proxyAuthOptions,
-        transformRequest: proxyTransformRequest,
       });
-
-      map.events.add('ready', () => {
-        if (cancelled) return;
-        mapInstanceRef.current = map;
-        setMapReady(true);
-      });
+      if (cancelled) {
+        adapter.dispose();
+        return;
+      }
+      adapterRef.current = adapter;
+      setMapReady(true);
     })();
     return () => {
       cancelled = true;
-      mapInstanceRef.current?.dispose();
-      mapInstanceRef.current = null;
+      adapterRef.current?.dispose();
+      adapterRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ── Update map style when user picks a different one ─────
   useEffect(() => {
-    const map = mapInstanceRef.current;
-    if (!map || !mapReady) return;
-    const current = (map.getStyle() as { style?: string }).style;
-    if (current === mapStyle) return;
-    map.setStyle({ style: mapStyle });
+    const adapter = adapterRef.current;
+    if (!adapter || !mapReady) return;
+    adapter.setStyle(mapStyle);
   }, [mapStyle, mapReady]);
 
   // ── Load agencies once ─────────────────────────────────────
@@ -113,21 +123,52 @@ export default function MapPage() {
   }, []);
 
   // ── Default selected agency on first load ─────────────────
+  // Returning visitor: restore the agency from localStorage if it's
+  // still in the agencies list. Otherwise pick the first.
   useEffect(() => {
-    if (!selectedAgency && agencies.length) setSelectedAgency(agencies[0]);
+    if (selectedAgency || !agencies.length) return;
+    const storedId = typeof window !== 'undefined' ? window.localStorage.getItem(AGENCY_KEY) : null;
+    const stored = storedId ? agencies.find((a) => a.id === storedId) : null;
+    setSelectedAgency(stored ?? agencies[0]);
   }, [agencies, selectedAgency]);
 
-  // ── Load routes when agency changes ────────────────────────
+  // ── Persist the selected agency ────────────────────────────
+  useEffect(() => {
+    if (selectedAgency && typeof window !== 'undefined') {
+      window.localStorage.setItem(AGENCY_KEY, selectedAgency.id);
+    }
+  }, [selectedAgency]);
+
+  // ── Load routes when agency or filter changes ─────────────
+  // The trailing `1` segment restricts the response to routes that
+  // currently have buses running; `0` returns every route the agency
+  // publishes. The toggle lives in the settings popover.
   useEffect(() => {
     if (!selectedAgency) return;
-    fetch(`/routes/${selectedAgency.id}/1`)
+    const filter = showAllRoutes ? 0 : 1;
+    fetch(`/routes/${selectedAgency.id}/${filter}`)
       .then((r) => r.json())
       .then((list: Route[]) => {
         setRoutes(list);
-        setSelectedRoute(list[0] ?? null);
+        setSelectedRoute((current) => {
+          // Keep the current selection if it's still in the new list.
+          if (current && list.some((r) => r.id === current.id)) return current;
+          // Otherwise restore from localStorage if matching, else first.
+          const storedId =
+            typeof window !== 'undefined' ? window.localStorage.getItem(ROUTE_KEY) : null;
+          const restored = storedId ? list.find((r) => r.id === storedId) ?? null : null;
+          return restored ?? list[0] ?? null;
+        });
       })
       .catch((e) => console.error('routes load failed', e));
-  }, [selectedAgency]);
+  }, [selectedAgency, showAllRoutes]);
+
+  // ── Persist the selected route ─────────────────────────────
+  useEffect(() => {
+    if (selectedRoute && typeof window !== 'undefined') {
+      window.localStorage.setItem(ROUTE_KEY, selectedRoute.id);
+    }
+  }, [selectedRoute]);
 
   // ── Poll live vehicles every 15s ───────────────────────────
   useEffect(() => {
@@ -154,13 +195,12 @@ export default function MapPage() {
   }, [selectedAgency, selectedRoute, pollPaused]);
 
   // ── Sync markers (create/move/re-render/remove) ────────────
-  // One effect handles position, heading, pinned state, and lifecycle. Always
-  // re-renders innerHTML so bearing changes from the poll are reflected; cost
-  // is small relative to the 15s polling cadence.
+  // One effect handles position, heading, pinned state, and lifecycle.
+  // Always re-renders innerHTML so bearing changes from the poll are
+  // reflected; cost is small relative to the 15s polling cadence.
   useEffect(() => {
-    const map = mapInstanceRef.current;
-    const atlas = atlasRef.current;
-    if (!map || !atlas || !mapReady || !selectedRoute) return;
+    const adapter = adapterRef.current;
+    if (!adapter || !mapReady || !selectedRoute) return;
 
     const seen = new Set<string>();
     const routeId = selectedRoute.id;
@@ -169,7 +209,7 @@ export default function MapPage() {
       seen.add(bus.vehicle_id);
       const pinned = bus.vehicle_id === pinnedVid;
       const bearing = bus.bearing != null ? Number(bus.bearing) : undefined;
-      const position: [number, number] = [Number(bus.lon), Number(bus.lat)];
+      const position = { lat: Number(bus.lat), lng: Number(bus.lon) };
       const html = renderToStaticMarkup(
         <BusMark
           size={42}
@@ -180,56 +220,41 @@ export default function MapPage() {
         />
       );
 
-      const existing = markersRef.current.get(bus.vehicle_id);
-      if (existing) {
-        existing.marker.setOptions({ position });
-        existing.el.innerHTML = html;
+      if (adapter.hasMarker(bus.vehicle_id)) {
+        adapter.updateMarker(bus.vehicle_id, { position, html });
       } else {
-        const wrap = document.createElement('div');
-        wrap.dataset.vid = bus.vehicle_id;
-        wrap.style.cursor = 'pointer';
-        wrap.innerHTML = html;
-        wrap.addEventListener('click', (e) => {
-          e.stopPropagation();
-          const vid = (e.currentTarget as HTMLDivElement).dataset.vid;
-          if (vid) setPinnedVid(vid);
+        adapter.addMarker({
+          id: bus.vehicle_id,
+          position,
+          html,
+          onClick: () => setPinnedVid(bus.vehicle_id),
         });
-        const marker = new atlas.HtmlMarker({ htmlContent: wrap, position });
-        map.markers.add(marker);
-        markersRef.current.set(bus.vehicle_id, { marker, el: wrap });
       }
     }
 
-    for (const [vid, entry] of markersRef.current.entries()) {
-      if (!seen.has(vid)) {
-        map.markers.remove(entry.marker);
-        markersRef.current.delete(vid);
-      }
+    for (const id of adapter.listMarkerIds()) {
+      if (!seen.has(id)) adapter.removeMarker(id);
     }
   }, [buses, pinnedVid, mapReady, selectedRoute, setPinnedVid]);
 
   // ── Clean markers when route changes ───────────────────────
   useEffect(() => {
-    const map = mapInstanceRef.current;
-    if (!map) return;
-    for (const entry of markersRef.current.values()) {
-      map.markers.remove(entry.marker);
-    }
-    markersRef.current.clear();
+    const adapter = adapterRef.current;
+    if (!adapter) return;
+    for (const id of adapter.listMarkerIds()) adapter.removeMarker(id);
     setPinnedVid(null);
   }, [selectedRoute, setPinnedVid]);
 
   // ── Recenter to pinned bus ─────────────────────────────────
   useEffect(() => {
-    const map = mapInstanceRef.current;
-    if (!map || !pinnedVid) return;
+    const adapter = adapterRef.current;
+    if (!adapter || !pinnedVid) return;
     const bus = buses.find((b) => b.vehicle_id === pinnedVid);
     if (!bus) return;
-    map.setCamera({
-      center: [Number(bus.lon), Number(bus.lat)],
-      zoom: Math.max(map.getCamera().zoom ?? 14, 14),
-      type: 'ease',
-      duration: 400,
+    adapter.setCamera({
+      center: { lat: Number(bus.lat), lng: Number(bus.lon) },
+      zoom: Math.max(adapter.getZoom(), 14),
+      animate: true,
     });
   }, [pinnedVid, buses]);
 
@@ -274,17 +299,27 @@ export default function MapPage() {
         >
           <IconArrowLeft size={18} />
         </button>
-        <div
+        <button
+          onClick={() => {
+            setRoutePickerOpen((o) => !o);
+            setSettingsOpen(false);
+          }}
+          aria-label="Change route"
+          aria-expanded={routePickerOpen}
           style={{
             flex: 1,
-            background: 'var(--surface)',
-            border: '1px solid var(--border)',
+            background: routePickerOpen ? 'var(--bg-elevated)' : 'var(--surface)',
+            border: '1px solid ' + (routePickerOpen ? 'var(--border-hi)' : 'var(--border)'),
             borderRadius: 14,
             padding: '8px 10px',
             display: 'flex',
             alignItems: 'center',
             gap: 8,
             boxShadow: '0 4px 14px rgba(0,0,0,0.18)',
+            color: 'var(--text)',
+            textAlign: 'left',
+            cursor: 'pointer',
+            minWidth: 0,
           }}
         >
           <div
@@ -332,8 +367,16 @@ export default function MapPage() {
               {selectedRoute?.long_name ?? 'Select a route'}
             </div>
           </div>
-          <IconChevron size={14} style={{ color: 'var(--text-muted)' }} />
-        </div>
+          <IconChevron
+            size={14}
+            style={{
+              color: 'var(--text-muted)',
+              transform: routePickerOpen ? 'rotate(180deg)' : 'none',
+              transition: 'transform 150ms ease',
+              flexShrink: 0,
+            }}
+          />
+        </button>
         <button
           onClick={() => setSettingsOpen((o) => !o)}
           aria-label="Settings"
@@ -368,7 +411,28 @@ export default function MapPage() {
             onMapStyleChange={setMapStyle}
             theme={theme}
             onThemeChange={setTheme}
+            showAllRoutes={showAllRoutes}
+            onShowAllRoutesChange={setShowAllRoutes}
             onClose={() => setSettingsOpen(false)}
+          />
+        </>
+      )}
+
+      {routePickerOpen && (
+        <>
+          <div
+            onClick={() => setRoutePickerOpen(false)}
+            style={{ position: 'fixed', inset: 0, zIndex: 35 }}
+          />
+          <RoutePickerPopover
+            routes={routes}
+            selected={selectedRoute}
+            showAllRoutes={showAllRoutes}
+            onPick={(r) => {
+              setSelectedRoute(r);
+              setRoutePickerOpen(false);
+            }}
+            onClose={() => setRoutePickerOpen(false)}
           />
         </>
       )}
@@ -493,20 +557,25 @@ export default function MapPage() {
 
 // Re-renders once a second to update its own text node, without forcing the
 // whole MapPage tree to re-render every tick.
-// Popover triggered by the top-bar gear. Carries two independent controls:
-// the Azure Maps style and the app theme. Map style is persisted in
-// localStorage by the parent so a reload keeps the user's choice.
+// Popover triggered by the top-bar gear. Three independent controls:
+// Azure Maps style, app theme, and a toggle that flips the route list
+// between "running only" and "all routes". All three persist in
+// localStorage so the user's choices survive a reload.
 function SettingsPopover({
   mapStyle,
   onMapStyleChange,
   theme,
   onThemeChange,
+  showAllRoutes,
+  onShowAllRoutesChange,
   onClose,
 }: {
   mapStyle: string;
   onMapStyleChange: (s: string) => void;
   theme: 'dark' | 'light';
   onThemeChange: (t: 'dark' | 'light') => void;
+  showAllRoutes: boolean;
+  onShowAllRoutesChange: (v: boolean) => void;
   onClose: () => void;
 }) {
   return (
@@ -579,6 +648,149 @@ function SettingsPopover({
           <SettingsOption label="Light" active={theme === 'light'} onClick={() => onThemeChange('light')} />
         </div>
       </SettingsSection>
+
+      <SettingsSection label="Routes">
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+          <SettingsOption label="Running" active={!showAllRoutes} onClick={() => onShowAllRoutesChange(false)} />
+          <SettingsOption label="All" active={showAllRoutes} onClick={() => onShowAllRoutesChange(true)} />
+        </div>
+      </SettingsSection>
+    </div>
+  );
+}
+
+// Drop-down picker that replaces what used to be a row in the bottom
+// sheet. Renders the same list of routes the parent has fetched, with
+// the active route highlighted and tickmarked.
+function RoutePickerPopover({
+  routes,
+  selected,
+  showAllRoutes,
+  onPick,
+  onClose,
+}: {
+  routes: Route[];
+  selected: Route | null;
+  showAllRoutes: boolean;
+  onPick: (r: Route) => void;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        top: 64,
+        left: 60, // clear of the back button
+        right: 60, // clear of the gear button
+        zIndex: 50,
+        background: 'var(--bg-elevated)',
+        border: '1px solid var(--border-hi)',
+        borderRadius: 14,
+        boxShadow: '0 12px 28px rgba(0,0,0,0.35)',
+        maxHeight: 'calc(100vh - 120px)',
+        display: 'flex',
+        flexDirection: 'column',
+        overflow: 'hidden',
+      }}
+    >
+      <div
+        style={{
+          padding: '12px 14px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          borderBottom: '1px solid var(--border)',
+        }}
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <span
+            className="mono"
+            style={{
+              fontSize: 10,
+              fontWeight: 700,
+              color: 'var(--text-muted)',
+              letterSpacing: 1.2,
+              textTransform: 'uppercase',
+            }}
+          >
+            Choose route
+          </span>
+          <span className="mono" style={{ fontSize: 10, color: 'var(--text-muted)' }}>
+            {routes.length} {showAllRoutes ? 'available' : 'running'}
+          </span>
+        </div>
+        <button
+          onClick={onClose}
+          aria-label="Close route picker"
+          style={{
+            background: 'transparent',
+            border: 'none',
+            color: 'var(--text-muted)',
+            padding: 4,
+            display: 'flex',
+            cursor: 'pointer',
+          }}
+        >
+          <IconClose size={14} />
+        </button>
+      </div>
+
+      <div style={{ overflowY: 'auto', flex: 1 }}>
+        {routes.length === 0 && (
+          <div
+            className="mono"
+            style={{ fontSize: 11, color: 'var(--text-muted)', padding: '16px 14px', textAlign: 'center' }}
+          >
+            No routes available.
+          </div>
+        )}
+        {routes.map((r) => {
+          const isActive = selected?.id === r.id;
+          return (
+            <button
+              key={r.id}
+              onClick={() => onPick(r)}
+              style={{
+                width: '100%',
+                padding: '10px 14px',
+                background: isActive ? 'color-mix(in oklab, var(--signal) 12%, var(--bg-elevated))' : 'transparent',
+                border: 'none',
+                color: 'var(--text)',
+                textAlign: 'left',
+                fontFamily: 'var(--font-sans)',
+                fontSize: 13,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                borderBottom: '1px solid var(--border)',
+                cursor: 'pointer',
+              }}
+            >
+              <span
+                className="mono"
+                style={{
+                  display: 'inline-flex',
+                  minWidth: 32,
+                  padding: '3px 6px',
+                  borderRadius: 6,
+                  background: isActive ? 'var(--signal)' : 'var(--surface)',
+                  color: isActive ? 'var(--signal-ink)' : 'var(--text)',
+                  fontSize: 11,
+                  fontWeight: 800,
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                }}
+              >
+                {r.id}
+              </span>
+              <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {r.long_name}
+              </span>
+              {isActive && <IconChevron size={14} style={{ color: 'var(--signal)' }} />}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -812,20 +1024,6 @@ function LiveSheet(p: {
   return (
     <>
       <div style={{ padding: '14px 18px 8px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-        <PickerRow
-          label="Route"
-          value={p.route ? `${p.route.id} · ${p.route.long_name}` : 'Choose…'}
-          sub={`${p.buses.length} buses running`}
-          tag={p.buses.length ? 'Live' : 'Idle'}
-          tagTone={p.buses.length ? 'live' : 'neutral'}
-          highlight
-          options={p.routes.map((r) => ({ key: r.id, label: `${r.id} · ${r.long_name}` }))}
-          onPick={(key) => {
-            const r = p.routes.find((x) => x.id === key);
-            if (r) p.onSelectRoute(r);
-          }}
-        />
-
         <PickerRow
           label="Agency"
           value={p.agency?.name ?? 'Choose…'}
